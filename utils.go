@@ -220,8 +220,8 @@ func GenerateTimestamps(startTime int64, count int, interval int64) []int64 {
 	return timestamps
 }
 
-// formatPlotDataJSON converts PlotData to JSON
-func formatPlotDataJSON(data []PlotData) (string, error) {
+// FormatPlotDataJSON converts PlotData to JSON
+func FormatPlotDataJSON(data []PlotData) (string, error) {
 	if len(data) == 0 {
 		return "[]", nil
 	}
@@ -237,8 +237,8 @@ func formatPlotDataJSON(data []PlotData) (string, error) {
 	return string(jsonData), nil
 }
 
-// formatPlotDataCSV converts PlotData to CSV
-func formatPlotDataCSV(data []PlotData) (string, error) {
+// FormatPlotDataCSV converts PlotData to CSV
+func FormatPlotDataCSV(data []PlotData) (string, error) {
 	if len(data) == 0 {
 		return "", nil
 	}
@@ -259,7 +259,7 @@ func formatPlotDataCSV(data []PlotData) (string, error) {
 	return builder.String(), nil
 }
 
-// calculateSlope computes the slope between two points
-func calculateSlope(y2, y1 float64) float64 {
+// CalculateSlope computes the slope between two points
+func CalculateSlope(y2, y1 float64) float64 {
 	return y2 - y1
 }
