@@ -39,17 +39,35 @@ func NewMovingAverage(maType MovingAverageType, period int) (*MovingAverage, err
 	}, nil
 }
 
-// Add appends a new value to the moving average
+// Add appends a new value to the moving average, enforcing non-negative values
 func (ma *MovingAverage) Add(value float64) error {
-	if !isValidPrice(value) {
+	if !isNonNegativePrice(value) {
 		return errors.New("invalid value")
 	}
 	ma.values = append(ma.values, value)
 	if len(ma.values) >= ma.period {
 		maValue, err := ma.calculate()
-		if err == nil {
-			ma.lastValue = maValue
+		if err != nil {
+			return fmt.Errorf("calculate failed: %w", err)
 		}
+		ma.lastValue = maValue
+	}
+	ma.trimSlices()
+	return nil
+}
+
+// AddValue appends a new value without enforcing non-negative constraint
+func (ma *MovingAverage) AddValue(value float64) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return errors.New("invalid value")
+	}
+	ma.values = append(ma.values, value)
+	if len(ma.values) >= ma.period {
+		maValue, err := ma.calculate()
+		if err != nil {
+			return fmt.Errorf("calculate failed: %w", err)
+		}
+		ma.lastValue = maValue
 	}
 	ma.trimSlices()
 	return nil
@@ -80,7 +98,7 @@ func (ma *MovingAverage) calculate() (float64, error) {
 
 // Calculate returns the current moving average value
 func (ma *MovingAverage) Calculate() (float64, error) {
-	if ma.lastValue == 0 {
+	if len(ma.values) == 0 || ma.lastValue == 0 {
 		return 0, errors.New("no moving average data")
 	}
 	return ma.lastValue, nil
@@ -198,9 +216,14 @@ func calculateWMA(data []float64, period int) (float64, error) {
 	return sum / weightSum, nil
 }
 
-// isValidPrice checks if a price is valid
+// isValidPrice checks if a price is valid (strictly positive)
 func isValidPrice(price float64) bool {
 	return price > 0 && !math.IsNaN(price) && !math.IsInf(price, 0)
+}
+
+// isNonNegativePrice checks if a price is valid (non-negative)
+func isNonNegativePrice(price float64) bool {
+	return price >= 0 && !math.IsNaN(price) && !math.IsInf(price, 0)
 }
 
 // isValidVolume checks if a volume is valid
@@ -220,8 +243,8 @@ func GenerateTimestamps(startTime int64, count int, interval int64) []int64 {
 	return timestamps
 }
 
-// FormatPlotDataJSON converts PlotData to JSON
-func FormatPlotDataJSON(data []PlotData) (string, error) {
+// formatPlotDataJSON converts PlotData to JSON
+func formatPlotDataJSON(data []PlotData) (string, error) {
 	if len(data) == 0 {
 		return "[]", nil
 	}
@@ -237,8 +260,8 @@ func FormatPlotDataJSON(data []PlotData) (string, error) {
 	return string(jsonData), nil
 }
 
-// FormatPlotDataCSV converts PlotData to CSV
-func FormatPlotDataCSV(data []PlotData) (string, error) {
+// formatPlotDataCSV converts PlotData to CSV
+func formatPlotDataCSV(data []PlotData) (string, error) {
 	if len(data) == 0 {
 		return "", nil
 	}
@@ -259,7 +282,7 @@ func FormatPlotDataCSV(data []PlotData) (string, error) {
 	return builder.String(), nil
 }
 
-// CalculateSlope computes the slope between two points
-func CalculateSlope(y2, y1 float64) float64 {
+// calculateSlope computes the slope between two points
+func calculateSlope(y2, y1 float64) float64 {
 	return y2 - y1
 }
