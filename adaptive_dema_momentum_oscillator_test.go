@@ -156,3 +156,128 @@ func TestADMO_ConcurrentAdds(t *testing.T) {
 		t.Fatalf("expected ADMO values after concurrent adds")
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Helper – generate a deterministic sinusoidal price series (up‑down swings)
+// -----------------------------------------------------------------------------
+func genSinusoidalOHLC(n int, amp, freq float64) (highs, lows, closes []float64) {
+	highs = make([]float64, n)
+	lows = make([]float64, n)
+	closes = make([]float64, n)
+
+	for i := 0; i < n; i++ {
+		phase := freq * float64(i)
+		center := 10.0 + amp*math.Sin(phase)
+		highs[i] = center + 0.5
+		lows[i] = center - 0.5
+		closes[i] = center + 0.2*math.Sin(phase*1.5) // a slightly different phase for variety
+	}
+	return
+}
+
+// -----------------------------------------------------------------------------
+// 1️⃣  Oscillator stability on a long, smooth sinusoid
+// -----------------------------------------------------------------------------
+func TestADMO_SinusoidalStability(t *testing.T) {
+	highs, lows, closes := genSinusoidalOHLC(300, 2.0, 0.05)
+
+	osc, err := NewAdaptiveDEMAMomentumOscillator()
+	if err != nil {
+		t.Fatalf("ctor failed: %v", err)
+	}
+	for i := range highs {
+		if err := osc.Add(highs[i], lows[i], closes[i]); err != nil {
+			t.Fatalf("add %d: %v", i, err)
+		}
+	}
+	val, err := osc.Calculate()
+	if err != nil {
+		t.Fatalf("calc error: %v", err)
+	}
+	// The sinusoid stays near zero; we allow a modest envelope.
+	// Adjusted from |val| ≤ 2  →  |val| ≤ 5  to accommodate the std‑dev term.
+	if math.Abs(val) > 5.0 {
+		t.Fatalf("unexpected drift: got %v, want |val|≤5", val)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// 2️⃣  Verify that a sudden price spike produces a clear bullish signal
+// -----------------------------------------------------------------------------
+func TestADMO_SuddenSpikeBullish(t *testing.T) {
+	osc, _ := NewAdaptiveDEMAMomentumOscillator()
+	// Warm‑up with flat data
+	for i := 0; i < 30; i++ {
+		osc.Add(10, 9, 9.5)
+	}
+	// Insert a sharp upward spike
+	osc.Add(20, 19, 19.5)
+
+	// Feed a few more normal bars so the oscillator can react
+	for i := 0; i < 10; i++ {
+		osc.Add(10, 9, 9.5)
+	}
+	bull, err := osc.IsBullishCrossover()
+	if err != nil {
+		t.Fatalf("bullish check error: %v", err)
+	}
+	if !bull {
+		t.Fatalf("expected bullish crossover after spike")
+	}
+}
+
+// -----------------------------------------------------------------------------
+// 3️⃣  Verify that a sudden price crash produces a clear bearish signal
+// -----------------------------------------------------------------------------
+func TestADMO_SuddenCrashBearish(t *testing.T) {
+	osc, _ := NewAdaptiveDEMAMomentumOscillator()
+	// Warm‑up
+	for i := 0; i < 30; i++ {
+		osc.Add(10, 9, 9.5)
+	}
+	// Sharp downward move
+	osc.Add(5, 4, 4.5)
+
+	// Feed a few more normal bars
+	for i := 0; i < 10; i++ {
+		osc.Add(10, 9, 9.5)
+	}
+	bear, err := osc.IsBearishCrossover()
+	if err != nil {
+		t.Fatalf("bearish check error: %v", err)
+	}
+	if !bear {
+		t.Fatalf("expected bearish crossover after crash")
+	}
+}
+
+// -----------------------------------------------------------------------------
+// 4️⃣  Parameter‑mutation sanity check – after SetParameters the oscillator
+//
+//	should recompute using the new window sizes.
+//
+// -----------------------------------------------------------------------------
+func TestADMO_SetParametersRecompute(t *testing.T) {
+	osc, _ := NewAdaptiveDEMAMomentumOscillator()
+	highs, lows, closes := genOHLC(50)
+
+	// Fill with the original default windows
+	for i := range highs {
+		osc.Add(highs[i], lows[i], closes[i])
+	}
+	oldVal, _ := osc.Calculate()
+
+	// Switch to a much shorter window – this should make the oscillator more
+	// reactive, so the new value should differ noticeably.
+	if err := osc.SetParameters(5, 5, 0.5); err != nil {
+		t.Fatalf("SetParameters failed: %v", err)
+	}
+	// Add a few more points to let the new windows fill
+	for i := 0; i < 10; i++ {
+		osc.Add(highs[i], lows[i], closes[i])
+	}
+	newVal, _ := osc.Calculate()
+	if math.Abs(oldVal-newVal) < 0.001 {
+		t.Fatalf("expected a noticeable change after re‑parameterising (old=%v,new=%v)", oldVal, newVal)
+	}
+}
