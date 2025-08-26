@@ -13,7 +13,7 @@ func genOHLC(count int) (highs, lows, closes []float64) {
 	lows = make([]float64, count)
 	closes = make([]float64, count)
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		// Simple upward trend with a little wiggle
 		base := float64(i) * 0.5
 		highs[i] = base + 1.0 + 0.1*math.Sin(float64(i))
@@ -63,7 +63,7 @@ func TestADMO_SinglePointCrossover(t *testing.T) {
 		t.Fatalf("first add failed: %v", err)
 	}
 	// Need to push enough extra bars to fill the internal windows
-	for i := 0; i < DefaultLength+DefaultStdevLength; i++ {
+	for i := range DefaultLength + DefaultStdevLength {
 		osc.Add(high+float64(i)*0.01, low+float64(i)*0.01, close+float64(i)*0.01)
 	}
 
@@ -77,7 +77,7 @@ func TestADMO_SinglePointCrossover(t *testing.T) {
 
 	// Force a negative move to trigger bearish
 	osc.Add(high-5, low-5, close-5)
-	for i := 0; i < DefaultLength+DefaultStdevLength; i++ {
+	for i := range DefaultLength + DefaultStdevLength {
 		osc.Add(high-5-float64(i)*0.01, low-5-float64(i)*0.01, close-5-float64(i)*0.01)
 	}
 	bear, err := osc.IsBearishCrossover()
@@ -136,7 +136,7 @@ func TestADMO_ConcurrentAdds(t *testing.T) {
 	const perWorker = 30
 
 	// launch workers
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		go func(id int) {
 			h, l, c := genOHLC(perWorker)
 			for i := range h {
@@ -147,7 +147,7 @@ func TestADMO_ConcurrentAdds(t *testing.T) {
 	}
 
 	// wait for all workers
-	for i := 0; i < workers; i++ {
+	for range workers {
 		<-done
 	}
 
@@ -165,7 +165,7 @@ func genSinusoidalOHLC(n int, amp, freq float64) (highs, lows, closes []float64)
 	lows = make([]float64, n)
 	closes = make([]float64, n)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		phase := freq * float64(i)
 		center := 10.0 + amp*math.Sin(phase)
 		highs[i] = center + 0.5
@@ -207,14 +207,14 @@ func TestADMO_SinusoidalStability(t *testing.T) {
 func TestADMO_SuddenSpikeBullish(t *testing.T) {
 	osc, _ := NewAdaptiveDEMAMomentumOscillator()
 	// Warm‑up with flat data
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		osc.Add(10, 9, 9.5)
 	}
 	// Insert a sharp upward spike
 	osc.Add(20, 19, 19.5)
 
 	// Feed a few more normal bars so the oscillator can react
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		osc.Add(10, 9, 9.5)
 	}
 	bull, err := osc.IsBullishCrossover()
@@ -232,14 +232,14 @@ func TestADMO_SuddenSpikeBullish(t *testing.T) {
 func TestADMO_SuddenCrashBearish(t *testing.T) {
 	osc, _ := NewAdaptiveDEMAMomentumOscillator()
 	// Warm‑up
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		osc.Add(10, 9, 9.5)
 	}
 	// Sharp downward move
 	osc.Add(5, 4, 4.5)
 
 	// Feed a few more normal bars
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		osc.Add(10, 9, 9.5)
 	}
 	bear, err := osc.IsBearishCrossover()
@@ -273,7 +273,7 @@ func TestADMO_SetParametersRecompute(t *testing.T) {
 		t.Fatalf("SetParameters failed: %v", err)
 	}
 	// Add a few more points to let the new windows fill
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		osc.Add(highs[i], lows[i], closes[i])
 	}
 	newVal, _ := osc.Calculate()

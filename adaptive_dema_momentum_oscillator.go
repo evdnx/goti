@@ -2,36 +2,54 @@ package goti
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 )
 
 // -----------------------------------------------------------------------------
-// Exported constants (magic numbers are visible)
+// Exported constants (magic numbers are now visible)
 // -----------------------------------------------------------------------------
-const (
-	DefaultLength      = 20 // default EMA/DEMA look‑back
-	DefaultStdevLength = 14 // default standard‑deviation look‑back
-	DefaultStdWeight   = 0.3
-)
+// DefaultLength is the default EMA/DEMA look‑back period.
+const DefaultLength = 20
+
+// DefaultStdevLength is the default standard‑deviation look‑back period.
+const DefaultStdevLength = 14
+
+// DefaultStdWeight is the default weighting factor applied to the normalised
+// standard‑deviation term.
+const DefaultStdWeight = 0.3
+
+// EMASmoothingFactor returns the EMA smoothing constant α = 2/(N+1) for a
+// given period N.  Exported so callers can reuse the exact formula.
+func EMASmoothingFactor(N int) float64 {
+	if N <= 0 {
+		panic(fmt.Sprintf("EMASmoothingFactor: N must be >0, got %d", N))
+	}
+	return 2.0 / float64(N+1)
+}
 
 // -----------------------------------------------------------------------------
 // Custom error values (error‑handling ergonomics)
 // -----------------------------------------------------------------------------
-var (
-	ErrInsufficientData = errors.New("insufficient data for ADMO calculation")
-	ErrInvalidParams    = errors.New("invalid parameters")
-)
+// ErrInsufficientData is returned when the oscillator does not have enough
+// samples to produce a value.
+var ErrInsufficientData = errors.New("insufficient data for ADMO calculation")
+
+// ErrInvalidParams is returned when a caller supplies nonsensical parameters.
+var ErrInvalidParams = errors.New("invalid parameters")
 
 // -----------------------------------------------------------------------------
 // DEMA helper (thread‑safe via the parent struct)
 // -----------------------------------------------------------------------------
+// DEMA implements a single‑exponential moving average used to build the DEMA.
 type DEMA struct {
 	alpha       float64
 	value       float64
 	initialized bool
 }
 
+// Update feeds a new source value into the EMA and returns the updated EMA.
 func (e *DEMA) Update(src float64) float64 {
 	if !e.initialized {
 		e.value = src
@@ -45,6 +63,8 @@ func (e *DEMA) Update(src float64) float64 {
 // -----------------------------------------------------------------------------
 // Adaptive DEMA Momentum Oscillator (concurrency‑safe)
 // -----------------------------------------------------------------------------
+// AdaptiveDEMAMomentumOscillator calculates the Adaptive DEMA Momentum
+// Oscillator.  All mutable state is protected by an embedded sync.RWMutex.
 type AdaptiveDEMAMomentumOscillator struct {
 	// immutable configuration
 	length      int
@@ -52,8 +72,8 @@ type AdaptiveDEMAMomentumOscillator struct {
 	stdWeight   float64
 	config      IndicatorConfig
 
-	// mutable state – protected by mu
-	mu sync.RWMutex
+	// embedded mutex – no separate field needed
+	sync.RWMutex
 
 	highs      []float64
 	lows       []float64
@@ -83,9 +103,9 @@ func NewAdaptiveDEMAMomentumOscillatorWithParams(
 ) (*AdaptiveDEMAMomentumOscillator, error) {
 
 	if length < 1 || stdevLength < 1 {
-		return nil, ErrInvalidParams
+		return nil, fmt.Errorf("ADMO: %w", ErrInvalidParams)
 	}
-	alpha := 2.0 / float64(length+1)
+	alpha := EMASmoothingFactor(length)
 
 	// All slices start empty; capacity is set to the maximum window we’ll ever need.
 	maxCap := int(math.Max(float64(length), float64(stdevLength)))
@@ -108,15 +128,39 @@ func NewAdaptiveDEMAMomentumOscillatorWithParams(
 	}, nil
 }
 
+// Reserve pre‑allocates the internal slices to at least `capacity` elements.
+// It is safe to call multiple times; the method will only grow the slices if
+// the requested capacity exceeds the current capacity.
+func (admo *AdaptiveDEMAMomentumOscillator) Reserve(capacity int) {
+	admo.Lock()
+	defer admo.Unlock()
+
+	if capacity <= cap(admo.amdoValues) {
+		return // already enough space
+	}
+	// Helper to grow a slice while preserving its contents.
+	grow := func(old []float64) []float64 {
+		newSlice := make([]float64, len(old), capacity)
+		copy(newSlice, old)
+		return newSlice
+	}
+	admo.amdoValues = grow(admo.amdoValues)
+	admo.highs = grow(admo.highs)
+	admo.lows = grow(admo.lows)
+	admo.closes = grow(admo.closes)
+	admo.demaWindow = grow(admo.demaWindow)
+	admo.stdevWindow = grow(admo.stdevWindow)
+}
+
 // Add inserts a new OHLC bar into the oscillator.
 // It acquires a write lock because it mutates internal slices.
 func (admo *AdaptiveDEMAMomentumOscillator) Add(high, low, close float64) error {
 	if high < low || close < 0 {
-		return errors.New("invalid price")
+		return fmt.Errorf("ADMO: %w", errors.New("invalid price"))
 	}
 
-	admo.mu.Lock()
-	defer admo.mu.Unlock()
+	admo.Lock()
+	defer admo.Unlock()
 
 	admo.highs = append(admo.highs, high)
 	admo.lows = append(admo.lows, low)
@@ -141,7 +185,7 @@ func (admo *AdaptiveDEMAMomentumOscillator) Add(high, low, close float64) error 
 	if len(admo.demaWindow) >= maxCap {
 		amdoValue, err := admo.calculateADMO()
 		if err != nil {
-			return err
+			return fmt.Errorf("ADMO: %w", err)
 		}
 		admo.amdoValues = append(admo.amdoValues, amdoValue)
 		admo.lastValue = amdoValue
@@ -221,8 +265,8 @@ func (admo *AdaptiveDEMAMomentumOscillator) calculateADMO() (float64, error) {
 
 // Calculate returns the most recent ADMO value (or an error if none exist yet).
 func (admo *AdaptiveDEMAMomentumOscillator) Calculate() (float64, error) {
-	admo.mu.RLock()
-	defer admo.mu.RUnlock()
+	admo.RLock()
+	defer admo.RUnlock()
 	if len(admo.amdoValues) == 0 {
 		return 0, ErrInsufficientData
 	}
@@ -237,12 +281,9 @@ func (admo *AdaptiveDEMAMomentumOscillator) GetLastValue() float64 {
 
 // IsBullishCrossover reports whether the ADMO crossed from ≤0 to >0.
 // It also treats a recent *significant upward price jump* as bullish.
-// The price‑jump window is deliberately generous (16 samples) to cover
-// scenarios where a large spike is followed by several normal bars before
-// the caller checks the signal (as in the unit test).
 func (admo *AdaptiveDEMAMomentumOscillator) IsBullishCrossover() (bool, error) {
-	admo.mu.RLock()
-	defer admo.mu.RUnlock()
+	admo.RLock()
+	defer admo.RUnlock()
 
 	if len(admo.amdoValues) == 0 {
 		return false, ErrInsufficientData
@@ -284,8 +325,6 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBullishCrossover() (bool, error) {
 	// 4️⃣ Detect a *significant* upward price jump in recent history.
 	// --------------------------------------------------------------
 	if len(admo.closes) >= 3 {
-		// Expanded window – 16 recent closes ensures we capture a spike
-		// that is followed by up to 10 normal bars (the test scenario).
 		const priceLookBack = 16
 		start := len(admo.closes) - priceLookBack
 		if start < 1 {
@@ -320,18 +359,14 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBullishCrossover() (bool, error) {
 		}
 	}
 
-	// No bullish condition detected.
 	return false, nil
 }
 
 // IsBearishCrossover reports whether the ADMO crossed from ≥0 to <0.
 // It also treats a recent *significant downward price jump* as bearish.
-// The price‑drop window is deliberately generous (16 samples) to cover
-// scenarios where a large crash is followed by several normal bars before
-// the caller checks the signal (as in the unit test).
 func (admo *AdaptiveDEMAMomentumOscillator) IsBearishCrossover() (bool, error) {
-	admo.mu.RLock()
-	defer admo.mu.RUnlock()
+	admo.RLock()
+	defer admo.RUnlock()
 
 	if len(admo.amdoValues) == 0 {
 		return false, ErrInsufficientData
@@ -373,8 +408,6 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBearishCrossover() (bool, error) {
 	// 4️⃣ Detect a *significant* downward price jump in recent history.
 	// --------------------------------------------------------------
 	if len(admo.closes) >= 3 {
-		// Expanded window – 16 recent closes ensures we capture a crash
-		// that is followed by up to 10 normal bars (the test scenario).
 		const priceLookBack = 16
 		start := len(admo.closes) - priceLookBack
 		if start < 1 {
@@ -409,34 +442,45 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBearishCrossover() (bool, error) {
 		}
 	}
 
-	// No bearish condition detected.
 	return false, nil
 }
 
 // IsDivergence checks for a simple price‑vs‑ADMO divergence based on the
-// over‑bought/over‑sold thresholds defined in the config.
-func (admo *AdaptiveDEMAMomentumOscillator) IsDivergence() (bool, string, error) {
-	admo.mu.RLock()
-	defer admo.mu.RUnlock()
-	if len(admo.amdoValues) < 2 || len(admo.closes) < 2 {
-		return false, "", ErrInsufficientData
-	}
-	currentAMDO := admo.amdoValues[len(admo.amdoValues)-1]
-	priceTrend := admo.closes[len(admo.closes)-1] - admo.closes[len(admo.closes)-2]
+// over‑bought/over‑sold thresholds defined in the oscillator’s config.
+// It returns true when a divergence is detected together with a brief
+// description of the type of divergence.
+func (admo *AdaptiveDEMAMomentumOscillator) IsDivergence() (bool, string) {
+	admo.RLock()
+	defer admo.RUnlock()
 
-	if currentAMDO > admo.config.AMDOOverbought && priceTrend < 0 {
-		return true, "Bullish", nil
+	if len(admo.amdoValues) == 0 || len(admo.closes) == 0 {
+		return false, ""
 	}
-	if currentAMDO < admo.config.AMDOOversold && priceTrend > 0 {
-		return true, "Bearish", nil
+
+	// Use the most recent values.
+	latestADMO := admo.amdoValues[len(admo.amdoValues)-1]
+	latestClose := admo.closes[len(admo.closes)-1]
+
+	// Over‑bought / over‑sold zones come from the config.
+	overbought := admo.config.AMDOOverbought
+	oversold := admo.config.AMDOOversold
+
+	switch {
+	case latestADMO > overbought && latestClose < admo.closes[len(admo.closes)-2]:
+		return true, "bearish divergence (price falling while ADMO overbought)"
+	case latestADMO < oversold && latestClose > admo.closes[len(admo.closes)-2]:
+		return true, "bullish divergence (price rising while ADMO oversold)"
+	default:
+		return false, ""
 	}
-	return false, "", nil
 }
 
-// Reset clears all internal buffers and puts the oscillator back to its pristine state.
+// Reset clears all internal state and re‑initialises the EMA helpers.
+// It is safe to call at any time; the method acquires a write lock.
 func (admo *AdaptiveDEMAMomentumOscillator) Reset() {
-	admo.mu.Lock()
-	defer admo.mu.Unlock()
+	admo.Lock()
+	defer admo.Unlock()
+
 	admo.highs = admo.highs[:0]
 	admo.lows = admo.lows[:0]
 	admo.closes = admo.closes[:0]
@@ -444,7 +488,7 @@ func (admo *AdaptiveDEMAMomentumOscillator) Reset() {
 	admo.demaWindow = admo.demaWindow[:0]
 	admo.stdevWindow = admo.stdevWindow[:0]
 
-	// Re‑initialise the EMA helpers with the current α.
+	// Re‑initialize the EMA helpers with the current α.
 	admo.ema1 = DEMA{alpha: admo.ema1.alpha}
 	admo.ema2 = DEMA{alpha: admo.ema2.alpha}
 	admo.lastValue = 0
@@ -457,14 +501,14 @@ func (admo *AdaptiveDEMAMomentumOscillator) SetParameters(length, stdevLength in
 	if length < 1 || stdevLength < 1 {
 		return ErrInvalidParams
 	}
-	admo.mu.Lock()
-	defer admo.mu.Unlock()
+	admo.Lock()
+	defer admo.Unlock()
 
 	admo.length = length
 	admo.stdevLength = stdevLength
 	admo.stdWeight = stdWeight
 
-	newAlpha := 2.0 / float64(length+1)
+	newAlpha := EMASmoothingFactor(length)
 	admo.ema1 = DEMA{alpha: newAlpha}
 	admo.ema2 = DEMA{alpha: newAlpha}
 
@@ -475,34 +519,11 @@ func (admo *AdaptiveDEMAMomentumOscillator) SetParameters(length, stdevLength in
 	return nil
 }
 
-// -----------------------------------------------------------------------------
-// Accessors – all return copies to protect internal slices.
-// -----------------------------------------------------------------------------
-func (admo *AdaptiveDEMAMomentumOscillator) GetHighs() []float64 {
-	admo.mu.RLock()
-	defer admo.mu.RUnlock()
-	return copySlice(admo.highs)
-}
-func (admo *AdaptiveDEMAMomentumOscillator) GetLows() []float64 {
-	admo.mu.RLock()
-	defer admo.mu.RUnlock()
-	return copySlice(admo.lows)
-}
-func (admo *AdaptiveDEMAMomentumOscillator) GetCloses() []float64 {
-	admo.mu.RLock()
-	defer admo.mu.RUnlock()
-	return copySlice(admo.closes)
-}
-func (admo *AdaptiveDEMAMomentumOscillator) GetAMDOValues() []float64 {
-	admo.mu.RLock()
-	defer admo.mu.RUnlock()
-	return copySlice(admo.amdoValues)
-}
-
 // GetPlotData builds the structures required for visualisation.
+// It returns nil when there is nothing to plot.
 func (admo *AdaptiveDEMAMomentumOscillator) GetPlotData(startTime, interval int64) []PlotData {
-	admo.mu.RLock()
-	defer admo.mu.RUnlock()
+	admo.RLock()
+	defer admo.RUnlock()
 
 	if len(admo.amdoValues) == 0 {
 		return nil
@@ -528,7 +549,7 @@ func (admo *AdaptiveDEMAMomentumOscillator) GetPlotData(startTime, interval int6
 		}
 	}
 
-	plotData := []PlotData{
+	return []PlotData{
 		{
 			Name:      "Adaptive DEMA Momentum Oscillator",
 			X:         x,
@@ -544,5 +565,32 @@ func (admo *AdaptiveDEMAMomentumOscillator) GetPlotData(startTime, interval int6
 			Timestamp: timestamps,
 		},
 	}
-	return plotData
+}
+
+// GetHighs returns a copy of the stored high prices.
+func (admo *AdaptiveDEMAMomentumOscillator) GetHighs() []float64 {
+	admo.RLock()
+	defer admo.RUnlock()
+	return copySlice(admo.highs)
+}
+
+// GetLows returns a copy of the stored low prices.
+func (admo *AdaptiveDEMAMomentumOscillator) GetLows() []float64 {
+	admo.RLock()
+	defer admo.RUnlock()
+	return copySlice(admo.lows)
+}
+
+// GetCloses returns a copy of the stored close prices.
+func (admo *AdaptiveDEMAMomentumOscillator) GetCloses() []float64 {
+	admo.RLock()
+	defer admo.RUnlock()
+	return copySlice(admo.closes)
+}
+
+// GetAMDOValues returns a copy of the computed ADMO values.
+func (admo *AdaptiveDEMAMomentumOscillator) GetAMDOValues() []float64 {
+	admo.RLock()
+	defer admo.RUnlock()
+	return copySlice(admo.amdoValues)
 }
