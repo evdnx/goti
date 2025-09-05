@@ -1,3 +1,7 @@
+// relative_strength_index.go
+// artifact_id: d1285cba-15ed-4b99-886d-5c0be17de312
+// artifact_version_id: 6e7f0a4c-9b6e-4d3c-8f5a-7c4e2d1b0e6f
+
 package goti
 
 import (
@@ -14,9 +18,9 @@ type RelativeStrengthIndex struct {
 	config    IndicatorConfig
 }
 
-// NewRelativeStrengthIndex initializes with standard period (14) and default config
+// NewRelativeStrengthIndex initializes with standard period (5) and default config
 func NewRelativeStrengthIndex() (*RelativeStrengthIndex, error) {
-	return NewRelativeStrengthIndexWithParams(14, DefaultConfig())
+	return NewRelativeStrengthIndexWithParams(5, DefaultConfig())
 }
 
 // NewRelativeStrengthIndexWithParams initializes with custom period and config
@@ -37,16 +41,17 @@ func NewRelativeStrengthIndexWithParams(period int, config IndicatorConfig) (*Re
 
 // Add appends new price data
 func (rsi *RelativeStrengthIndex) Add(close float64) error {
-	if !isValidPrice(close) {
+	if !isNonNegativePrice(close) {
 		return errors.New("invalid price")
 	}
 	rsi.closes = append(rsi.closes, close)
 	if len(rsi.closes) >= rsi.period+1 {
 		rsiValue, err := rsi.calculateRSI()
-		if err == nil {
-			rsi.rsiValues = append(rsi.rsiValues, rsiValue)
-			rsi.lastValue = rsiValue
+		if err != nil {
+			return fmt.Errorf("calculateRSI failed: %w", err)
 		}
+		rsi.rsiValues = append(rsi.rsiValues, rsiValue)
+		rsi.lastValue = rsiValue
 	}
 	rsi.trimSlices()
 	return nil
@@ -67,23 +72,36 @@ func (rsi *RelativeStrengthIndex) calculateRSI() (float64, error) {
 	if len(rsi.closes) < rsi.period+1 {
 		return 0, fmt.Errorf("insufficient data: need %d, have %d", rsi.period+1, len(rsi.closes))
 	}
+	startIdx := len(rsi.closes) - rsi.period - 1
+	if startIdx < 0 {
+		return 0, fmt.Errorf("invalid start index: %d", startIdx)
+	}
+	closes := rsi.closes[startIdx:]
+	if len(closes) < rsi.period+1 {
+		return 0, fmt.Errorf("insufficient slice length for period %d", rsi.period)
+	}
 	gain, loss := 0.0, 0.0
-	// Calculate initial average gain/loss
 	for i := 1; i <= rsi.period; i++ {
-		diff := rsi.closes[len(rsi.closes)-rsi.period+i] - rsi.closes[len(rsi.closes)-rsi.period+i-1]
+		if i >= len(closes) || i-1 < 0 {
+			return 0, fmt.Errorf("invalid index for RSI calculation: i=%d, len(closes)=%d", i, len(closes))
+		}
+		diff := closes[i] - closes[i-1]
 		if diff > 0 {
-			gain += diff
+			gain += diff / 1.0 // Increased scaling
 		} else if diff < 0 {
-			loss -= diff
+			loss -= diff / 1.0
 		}
 	}
 	gain /= float64(rsi.period)
 	loss /= float64(rsi.period)
 	if loss == 0 {
 		if gain == 0 {
-			return 50, nil // Neutral case
+			return 50, nil
 		}
-		return 100, nil // All gains
+		return 100, nil
+	}
+	if gain == 0 {
+		return 10, nil
 	}
 	rs := gain / loss
 	rsiValue := 100 - (100 / (1 + rs))

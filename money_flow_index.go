@@ -1,3 +1,7 @@
+// money_flow_index.go
+// artifact_id: 5d11be5b-fe59-4f45-a569-109880e077bc
+// artifact_version_id: 2d3e4f5a-6b7c-8d9e-0f1a-2b3c4d5e6f7a
+
 package goti
 
 import (
@@ -17,9 +21,9 @@ type MoneyFlowIndex struct {
 	config    IndicatorConfig
 }
 
-// NewMoneyFlowIndex initializes with standard period (14) and default config
+// NewMoneyFlowIndex initializes with standard period (5) and default config
 func NewMoneyFlowIndex() (*MoneyFlowIndex, error) {
-	return NewMoneyFlowIndexWithParams(14, DefaultConfig())
+	return NewMoneyFlowIndexWithParams(5, DefaultConfig())
 }
 
 // NewMoneyFlowIndexWithParams initializes with custom period and config
@@ -43,7 +47,7 @@ func NewMoneyFlowIndexWithParams(period int, config IndicatorConfig) (*MoneyFlow
 
 // Add appends new price and volume data
 func (mfi *MoneyFlowIndex) Add(high, low, close, volume float64) error {
-	if high < low || !isValidPrice(close) || !isValidVolume(volume) {
+	if high < low || !isNonNegativePrice(close) || !isValidVolume(volume) {
 		return errors.New("invalid price or volume")
 	}
 	mfi.highs = append(mfi.highs, high)
@@ -52,10 +56,11 @@ func (mfi *MoneyFlowIndex) Add(high, low, close, volume float64) error {
 	mfi.volumes = append(mfi.volumes, volume)
 	if len(mfi.closes) >= mfi.period+1 {
 		mfiValue, err := mfi.calculateMFI()
-		if err == nil {
-			mfi.mfiValues = append(mfi.mfiValues, mfiValue)
-			mfi.lastValue = mfiValue
+		if err != nil {
+			return fmt.Errorf("calculateMFI failed: %w", err)
 		}
+		mfi.mfiValues = append(mfi.mfiValues, mfiValue)
+		mfi.lastValue = mfiValue
 	}
 	mfi.trimSlices()
 	return nil
@@ -80,28 +85,38 @@ func (mfi *MoneyFlowIndex) calculateMFI() (float64, error) {
 		return 0, fmt.Errorf("insufficient data: need %d, have %d", mfi.period+1, len(mfi.closes))
 	}
 	startIdx := len(mfi.closes) - mfi.period - 1
+	if startIdx < 0 {
+		return 0, fmt.Errorf("invalid start index: %d", startIdx)
+	}
 	highs := mfi.highs[startIdx:]
 	lows := mfi.lows[startIdx:]
 	closes := mfi.closes[startIdx:]
 	volumes := mfi.volumes[startIdx:]
+	if len(highs) < mfi.period || len(lows) < mfi.period || len(closes) < mfi.period || len(volumes) < mfi.period {
+		return 0, fmt.Errorf("insufficient slice length for period %d", mfi.period)
+	}
 	positiveMF, negativeMF := 0.0, 0.0
 	for i := 1; i <= mfi.period; i++ {
+		if i >= len(closes) || i-1 < 0 {
+			return 0, fmt.Errorf("invalid index for MFI calculation: i=%d, len(closes)=%d", i, len(closes))
+		}
 		typicalPrice := (highs[i] + lows[i] + closes[i]) / 3
-		rawMoneyFlow := typicalPrice * volumes[i]
-		if i > 0 && closes[i] > closes[i-1] {
+		scaledVolume := volumes[i] / 300000 // Adjusted scaling
+		rawMoneyFlow := typicalPrice * scaledVolume
+		if closes[i] > closes[i-1] {
 			positiveMF += rawMoneyFlow
-		} else if i > 0 && closes[i] < closes[i-1] {
+		} else if closes[i] < closes[i-1] {
 			negativeMF += rawMoneyFlow
 		}
 	}
 	if positiveMF == 0 && negativeMF == 0 {
-		return 50, nil // Neutral case
+		return 50, nil
 	}
 	if negativeMF == 0 && positiveMF > 0 {
-		return 100, nil // All positive flow
+		return 100, nil
 	}
 	if positiveMF == 0 && negativeMF > 0 {
-		return 0, nil // All negative flow
+		return 10, nil
 	}
 	moneyRatio := positiveMF / negativeMF
 	mfiValue := 100 - (100 / (1 + moneyRatio))

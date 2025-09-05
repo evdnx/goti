@@ -1,5 +1,7 @@
 package goti
 
+import "fmt"
+
 // -----------------------------------------------------------------------------
 // Exported constants (magic numbers made visible)
 // -----------------------------------------------------------------------------
@@ -21,6 +23,11 @@ type IndicatorConfig struct {
 	AMDOOversold    float64 // ADMO z‑score oversold threshold
 	AMDOScaling     float64 // scaling factor used by some ADMO variants
 	VWAOStrongTrend float64 // VWAO strong‑trend threshold
+
+	// ATSEMAperiod is the EMA period used to smooth the Adaptive Trend
+	// Strength Oscillator (ATSO).  The default matches the original hard‑coded
+	// value of 5 but can be overridden by the caller.
+	ATSEMAperiod int
 }
 
 // DefaultConfig returns a sensible set of defaults for every indicator.
@@ -34,5 +41,29 @@ func DefaultConfig() IndicatorConfig {
 		AMDOOversold:    DefaultAMDOOversold,
 		AMDOScaling:     50,
 		VWAOStrongTrend: 70,
+		ATSEMAperiod:    5,
 	}
+}
+
+// -------------------------------------------------------------------
+// Validate – checks that the configuration values are sensible.
+// -------------------------------------------------------------------
+func (c IndicatorConfig) Validate() error {
+	// 0 or negative values are not allowed.
+	if c.ATSEMAperiod <= 0 {
+		return fmt.Errorf("ATSEMAperiod must be greater than 0, got %d", c.ATSEMAperiod)
+	}
+
+	// Upper‑bound sanity check – any value that is absurdly large is treated
+	// as an error (covers the wrap‑around case when a negative literal is
+	// forced into an unsigned type elsewhere).
+	const maxReasonablePeriod = 1_000_000
+	if c.ATSEMAperiod > maxReasonablePeriod {
+		return fmt.Errorf(
+			"ATSEMAperiod is unreasonably large (%d); must be ≤ %d",
+			c.ATSEMAperiod,
+			maxReasonablePeriod,
+		)
+	}
+	return nil
 }

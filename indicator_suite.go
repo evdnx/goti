@@ -1,85 +1,84 @@
 package goti
 
 import (
+	"errors"
 	"fmt"
 )
 
-// IndicatorSuite combines multiple indicators for unified signals
+// IndicatorSuite combines multiple technical indicators for a comprehensive market signal
 type IndicatorSuite struct {
-	amdo    *AdaptiveMomentumDivergenceOscillator
-	atso    *AdaptiveTrendStrengthOscillator
-	vwao    *VolumeWeightedAroonOscillator
-	hma     *HullMovingAverage
-	mfi     *MoneyFlowIndex
-	rsi     *RelativeStrengthIndex
-	atr     *AverageTrueRange
-	config  IndicatorConfig
-	weights map[string]float64
+	rsi  *RelativeStrengthIndex           // Relative Strength Index
+	mfi  *MoneyFlowIndex                  // Money Flow Index
+	vwao *VolumeWeightedAroonOscillator   // Volume-Weighted Aroon Oscillator
+	hma  *HullMovingAverage               // Hull Moving Average
+	amdo *AdaptiveDEMAMomentumOscillator  // Adaptive DEMA Divergence Oscillator
+	atso *AdaptiveTrendStrengthOscillator // Adaptive Trend Strength Oscillator
 }
 
-// NewIndicatorSuite initializes the suite with default parameters and weights
+// NewIndicatorSuite initializes the suite with default parameters
 func NewIndicatorSuite() (*IndicatorSuite, error) {
 	return NewIndicatorSuiteWithConfig(DefaultConfig())
 }
 
-// NewIndicatorSuiteWithConfig initializes with custom config
+// NewIndicatorSuiteWithConfig initializes the suite with a custom configuration
 func NewIndicatorSuiteWithConfig(config IndicatorConfig) (*IndicatorSuite, error) {
-	amdo, err := NewAdaptiveMomentumDivergenceOscillatorWithParams(5, 14, 14, config)
+	// Initialize Relative Strength Index
+	rsi, err := NewRelativeStrengthIndexWithParams(5, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create AMDO: %w", err)
+		return nil, fmt.Errorf("failed to create RSI: %w", err)
 	}
-	atso, err := NewAdaptiveTrendStrengthOscillatorWithParams(5, 14, 14, config)
+
+	// Initialize Money Flow Index
+	mfi, err := NewMoneyFlowIndexWithParams(5, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create ATSO: %w", err)
+		return nil, fmt.Errorf("failed to create MFI: %w", err)
 	}
+
+	// Initialize Volume-Weighted Aroon Oscillator
 	vwao, err := NewVolumeWeightedAroonOscillatorWithParams(14, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VWAO: %w", err)
 	}
+
+	// Initialize Hull Moving Average
 	hma, err := NewHullMovingAverageWithParams(9)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HMA: %w", err)
 	}
-	mfi, err := NewMoneyFlowIndexWithParams(14, config)
+
+	// Initialize Adaptive DEMA Divergence Oscillator
+	amdo, err := NewAdaptiveDEMAMomentumOscillatorWithParams(20, 14, 0.3, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create MFI: %w", err)
+		return nil, fmt.Errorf("failed to create AMDO: %w", err)
 	}
-	rsi, err := NewRelativeStrengthIndexWithParams(14, config)
+
+	// Initialize Adaptive Trend Strength Oscillator
+	atso, err := NewAdaptiveTrendStrengthOscillatorWithParams(2, 14, 14, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create RSI: %w", err)
+		return nil, fmt.Errorf("failed to create ATSO: %w", err)
 	}
-	atr, err := NewAverageTrueRangeWithParams(14)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create ATR: %w", err)
-	}
+
 	return &IndicatorSuite{
-		amdo:   amdo,
-		atso:   atso,
-		vwao:   vwao,
-		hma:    hma,
-		mfi:    mfi,
-		rsi:    rsi,
-		atr:    atr,
-		config: config,
-		weights: map[string]float64{
-			"amdo": 1.0,
-			"atso": 1.0,
-			"vwao": 1.0,
-			"hma":  1.5, // Higher weight for trend
-			"mfi":  1.2, // Slightly higher for volume
-			"rsi":  1.0,
-			// ATR not included in weights as it's non-directional
-		},
+		rsi:  rsi,
+		mfi:  mfi,
+		vwao: vwao,
+		hma:  hma,
+		amdo: amdo,
+		atso: atso,
 	}, nil
 }
 
-// Add appends new data to all indicators
+// Add appends new price and volume data to all indicators
 func (suite *IndicatorSuite) Add(high, low, close, volume float64) error {
-	if err := suite.amdo.Add(close); err != nil {
-		return fmt.Errorf("AMDO add failed: %w", err)
+	if high < low || !isNonNegativePrice(close) || !isValidVolume(volume) {
+		return errors.New("invalid price or volume")
 	}
-	if err := suite.atso.Add(high, low, close); err != nil {
-		return fmt.Errorf("ATSO add failed: %w", err)
+
+	if err := suite.rsi.Add(close); err != nil {
+		return fmt.Errorf("RSI add failed: %w", err)
+	}
+	if err := suite.mfi.Add(high, low, close, volume); err != nil {
+		return fmt.Errorf("MFI add failed: %w", err)
 	}
 	if err := suite.vwao.Add(high, low, close, volume); err != nil {
 		return fmt.Errorf("VWAO add failed: %w", err)
@@ -87,149 +86,205 @@ func (suite *IndicatorSuite) Add(high, low, close, volume float64) error {
 	if err := suite.hma.Add(close); err != nil {
 		return fmt.Errorf("HMA add failed: %w", err)
 	}
-	if err := suite.mfi.Add(high, low, close, volume); err != nil {
-		return fmt.Errorf("MFI add failed: %w", err)
+	if err := suite.amdo.Add(high, low, close); err != nil {
+		return fmt.Errorf("AMDO add failed: %w", err)
 	}
-	if err := suite.rsi.Add(close); err != nil {
-		return fmt.Errorf("RSI add failed: %w", err)
-	}
-	if err := suite.atr.Add(high, low, close); err != nil {
-		return fmt.Errorf("ATR add failed: %w", err)
+	if err := suite.atso.Add(high, low, close); err != nil {
+		return fmt.Errorf("ATSO add failed: %w", err)
 	}
 	return nil
 }
 
-// GetCombinedSignal returns a combined trading signal
+// GetCombinedSignal calculates a weighted bullish signal from all indicators
 func (suite *IndicatorSuite) GetCombinedSignal() (string, error) {
-	bullishWeight := 0.0
-	bearishWeight := 0.0
-
-	amdoBullish, err := suite.amdo.IsBullishCrossover()
-	if err != nil && err.Error() != "insufficient data for crossover" {
-		return "", err
+	rsiBullish, err := suite.rsi.IsBullishCrossover()
+	if err != nil {
+		return "", fmt.Errorf("RSI bullish crossover check failed: %w", err)
 	}
-	if amdoBullish {
-		bullishWeight += suite.weights["amdo"]
-	}
-	amdoBearish, err := suite.amdo.IsBearishCrossover()
-	if err != nil && err.Error() != "insufficient data for crossover" {
-		return "", err
-	}
-	if amdoBearish {
-		bearishWeight += suite.weights["amdo"]
-	}
-
-	atsoBullish, err := suite.atso.IsBullishCrossover()
-	if err != nil && err.Error() != "insufficient data for crossover" {
-		return "", err
-	}
-	if atsoBullish {
-		bullishWeight += suite.weights["atso"]
-	}
-	atsoBearish, err := suite.atso.IsBearishCrossover()
-	if err != nil && err.Error() != "insufficient data for crossover" {
-		return "", err
-	}
-	if atsoBearish {
-		bearishWeight += suite.weights["atso"]
-	}
-
-	vwaoBullish, err := suite.vwao.IsBullishCrossover()
-	if err != nil && err.Error() != "insufficient data for crossover" {
-		return "", err
-	}
-	if vwaoBullish {
-		bullishWeight += suite.weights["vwao"]
-	}
-	vwaoBearish, err := suite.vwao.IsBearishCrossover()
-	if err != nil && err.Error() != "insufficient data for crossover" {
-		return "", err
-	}
-	if vwaoBearish {
-		bearishWeight += suite.weights["vwao"]
-	}
-
-	hmaBullish, err := suite.hma.IsBullishCrossover()
-	if err != nil && err.Error() != "insufficient data for crossover" {
-		return "", err
-	}
-	if hmaBullish {
-		bullishWeight += suite.weights["hma"]
-	}
-	hmaBearish, err := suite.hma.IsBearishCrossover()
-	if err != nil && err.Error() != "insufficient data for crossover" {
-		return "", err
-	}
-	if hmaBearish {
-		bearishWeight += suite.weights["hma"]
-	}
-
 	mfiBullish, err := suite.mfi.IsBullishCrossover()
-	if err != nil && err.Error() != "insufficient data for crossover" {
-		return "", err
+	if err != nil {
+		return "", fmt.Errorf("MFI bullish crossover check failed: %w", err)
+	}
+	vwaoBullish, err := suite.vwao.IsBullishCrossover()
+	if err != nil {
+		return "", fmt.Errorf("VWAO bullish crossover check failed: %w", err)
+	}
+	hmaBullish, err := suite.hma.IsBullishCrossover()
+	if err != nil {
+		return "", fmt.Errorf("HMA bullish crossover check failed: %w", err)
+	}
+	amdoBullish, err := suite.amdo.IsBullishCrossover()
+	if err != nil {
+		return "", fmt.Errorf("AMDO bullish crossover check failed: %w", err)
+	}
+	atsoBullish, err := suite.atso.IsBullishCrossover()
+	if err != nil {
+		return "", fmt.Errorf("ATSO bullish crossover check failed: %w", err)
+	}
+
+	weightSum := 0.0
+	if rsiBullish {
+		weightSum += 1.0
 	}
 	if mfiBullish {
-		bullishWeight += suite.weights["mfi"]
+		weightSum += 1.2
 	}
-	mfiBearish, err := suite.mfi.IsBearishCrossover()
-	if err != nil && err.Error() != "insufficient data for crossover" {
-		return "", err
+	if vwaoBullish {
+		weightSum += 1.0
 	}
-	if mfiBearish {
-		bearishWeight += suite.weights["mfi"]
+	if hmaBullish {
+		weightSum += 1.5
 	}
-
-	rsiBullish, err := suite.rsi.IsBullishCrossover()
-	if err != nil && err.Error() != "insufficient data for crossover" {
-		return "", err
+	if amdoBullish {
+		weightSum += 0.8
 	}
-	if rsiBullish {
-		bullishWeight += suite.weights["rsi"]
-	}
-	rsiBearish, err := suite.rsi.IsBearishCrossover()
-	if err != nil && err.Error() != "insufficient data for crossover" {
-		return "", err
-	}
-	if rsiBearish {
-		bearishWeight += suite.weights["rsi"]
+	if atsoBullish {
+		weightSum += 0.5
 	}
 
-	// ATR is non-directional, so not included in signal calculation
-	if bullishWeight >= 4.0 {
+	if weightSum >= 4.0 {
 		return "Strong Bullish", nil
 	}
-	if bearishWeight >= 4.0 {
-		return "Strong Bearish", nil
-	}
-	if bullishWeight >= 2.5 {
+	if weightSum >= 2.0 {
 		return "Bullish", nil
 	}
-	if bearishWeight >= 2.5 {
-		return "Bearish", nil
+	if weightSum > 0 {
+		return "Weak Bullish", nil
 	}
 	return "Neutral", nil
 }
 
-// Reset clears all indicators
-func (suite *IndicatorSuite) Reset() {
-	suite.amdo.Reset()
-	suite.atso.Reset()
-	suite.vwao.Reset()
-	suite.hma.Reset()
-	suite.mfi.Reset()
-	suite.rsi.Reset()
-	suite.atr.Reset()
+// GetCombinedBearishSignal calculates a weighted bearish signal from all indicators
+func (suite *IndicatorSuite) GetCombinedBearishSignal() (string, error) {
+	rsiBearish, err := suite.rsi.IsBearishCrossover()
+	if err != nil {
+		return "", fmt.Errorf("RSI bearish crossover check failed: %w", err)
+	}
+	mfiBearish, err := suite.mfi.IsBearishCrossover()
+	if err != nil {
+		return "", fmt.Errorf("MFI bearish crossover check failed: %w", err)
+	}
+	vwaoBearish, err := suite.vwao.IsBearishCrossover()
+	if err != nil {
+		return "", fmt.Errorf("VWAO bearish crossover check failed: %w", err)
+	}
+	hmaBearish, err := suite.hma.IsBearishCrossover()
+	if err != nil {
+		return "", fmt.Errorf("HMA bearish crossover check failed: %w", err)
+	}
+	amdoBearish, err := suite.amdo.IsBearishCrossover()
+	if err != nil {
+		return "", fmt.Errorf("AMDO bearish crossover check failed: %w", err)
+	}
+	atsoBearish, err := suite.atso.IsBearishCrossover()
+	if err != nil {
+		return "", fmt.Errorf("ATSO bearish crossover check failed: %w", err)
+	}
+
+	weightSum := 0.0
+	if rsiBearish {
+		weightSum += 1.0
+	}
+	if mfiBearish {
+		weightSum += 1.2
+	}
+	if vwaoBearish {
+		weightSum += 1.0
+	}
+	if hmaBearish {
+		weightSum += 1.5
+	}
+	if amdoBearish {
+		weightSum += 0.8
+	}
+	if atsoBearish {
+		weightSum += 0.5
+	}
+
+	if weightSum >= 4.0 {
+		return "Strong Bearish", nil
+	}
+	if weightSum >= 2.0 {
+		return "Bearish", nil
+	}
+	if weightSum > 0 {
+		return "Weak Bearish", nil
+	}
+	return "Neutral", nil
 }
 
-// GetPlotData returns combined plot data
+// GetDivergenceSignals checks for divergence signals across all indicators
+func (suite *IndicatorSuite) GetDivergenceSignals() (map[string]string, error) {
+	result := make(map[string]string)
+	rsiDiv, rsiSignal, err := suite.rsi.IsDivergence()
+	if err != nil {
+		return nil, fmt.Errorf("RSI divergence check failed: %w", err)
+	}
+	if rsiDiv {
+		result["RSI"] = rsiSignal
+	}
+	mfiDiv, mfiSignal, err := suite.mfi.IsDivergence()
+	if err != nil {
+		return nil, fmt.Errorf("MFI divergence check failed: %w", err)
+	}
+	if mfiDiv {
+		result["MFI"] = mfiSignal
+	}
+	amdoDiv, amdoSignal := suite.amdo.IsDivergence()
+	if amdoDiv {
+		result["AMDO"] = amdoSignal
+	}
+	return result, nil
+}
+
+// Reset clears all indicator data
+func (suite *IndicatorSuite) Reset() {
+	suite.rsi.Reset()
+	suite.mfi.Reset()
+	suite.vwao.Reset()
+	suite.hma.Reset()
+	suite.amdo.Reset()
+	suite.atso.Reset()
+}
+
+// GetRSI returns the RSI indicator
+func (suite *IndicatorSuite) GetRSI() *RelativeStrengthIndex {
+	return suite.rsi
+}
+
+// GetMFI returns the MFI indicator
+func (suite *IndicatorSuite) GetMFI() *MoneyFlowIndex {
+	return suite.mfi
+}
+
+// GetVWAO returns the VWAO indicator
+func (suite *IndicatorSuite) GetVWAO() *VolumeWeightedAroonOscillator {
+	return suite.vwao
+}
+
+// GetHMA returns the HMA indicator
+func (suite *IndicatorSuite) GetHMA() *HullMovingAverage {
+	return suite.hma
+}
+
+// GetAMDO returns the AMDO indicator
+func (suite *IndicatorSuite) GetAMDO() *AdaptiveDEMAMomentumOscillator {
+	return suite.amdo
+}
+
+// GetATSO returns the ATSO indicator
+func (suite *IndicatorSuite) GetATSO() *AdaptiveTrendStrengthOscillator {
+	return suite.atso
+}
+
+// GetPlotData returns combined plot data from all indicators
 func (suite *IndicatorSuite) GetPlotData(startTime, interval int64) []PlotData {
 	var plotData []PlotData
-	plotData = append(plotData, suite.amdo.GetPlotData(startTime, interval)...)
-	plotData = append(plotData, suite.atso.GetPlotData(startTime, interval)...)
+	plotData = append(plotData, suite.rsi.GetPlotData(startTime, interval)...)
+	plotData = append(plotData, suite.mfi.GetPlotData(startTime, interval)...)
 	plotData = append(plotData, suite.vwao.GetPlotData(startTime, interval)...)
 	plotData = append(plotData, suite.hma.GetPlotData(startTime, interval)...)
-	plotData = append(plotData, suite.mfi.GetPlotData(startTime, interval)...)
-	plotData = append(plotData, suite.rsi.GetPlotData(startTime, interval)...)
-	plotData = append(plotData, suite.atr.GetPlotData(startTime, interval)...)
+	plotData = append(plotData, suite.amdo.GetPlotData(startTime, interval)...)
+	plotData = append(plotData, suite.atso.GetPlotData(startTime, interval)...)
 	return plotData
 }
