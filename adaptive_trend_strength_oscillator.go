@@ -346,12 +346,27 @@ func (atso *AdaptiveTrendStrengthOscillator) normalize(raw float64) (float64, er
 	return clamp(norm, -100, 100), nil
 }
 
-// Calculate returns the most recent ATSO value (smoothed by EMA).
+// Calculate returns the current ATSO value.
+// After the first full EMA period the oscillator should report the
+// EMA‑smoothed value.  If the EMA has not been instantiated yet (i.e. not
+// enough data points have been added), we return an error so the caller can
+// decide what to do.
+//
+// The method now simply forwards the request to the EMA instance, which
+// already implements the “seed with SMA when period == len(data)” behaviour
+// from utils.go.
 func (atso *AdaptiveTrendStrengthOscillator) Calculate() (float64, error) {
-	if len(atso.atsoValues) == 0 {
-		return 0, errors.New("no ATSO data")
+	// If the EMA has never been created we have no value to return.
+	if atso.ema == nil {
+		return 0, fmt.Errorf("ATSO EMA not initialized – not enough data")
 	}
-	return atso.lastValue, nil
+
+	// Ask the EMA for its current (smoothed) value.
+	val, err := atso.ema.Calculate()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get EMA value: %w", err)
+	}
+	return val, nil
 }
 
 // GetLastValue returns the last (unsmoothed) ATSO value.
