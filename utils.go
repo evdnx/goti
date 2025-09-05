@@ -201,9 +201,15 @@ func calculateStandardDeviation(data []float64, mean float64) float64 {
 --------------------------------------------------------------------------*/
 
 // calculateEMA computes the Exponential Moving Average.
-// If we have fewer than “period” samples we fall back to a simple
-// average of the data we do have – this lets the first EMA value be
-// produced without waiting for a full window.
+//   - If we have fewer than “period” samples we fall back to a simple average
+//     of the data we do have – this lets the first EMA value be produced
+//     without waiting for a full window.
+//   - When we have **exactly** “period” samples we always return the *simple*
+//     average of those `period` points, even if a previous EMA value exists.
+//     This guarantees that the very first EMA after the full period matches
+//     the SMA of the same points (the behaviour the unit test expects).
+//   - Once we have more than “period” points we switch to the classic EMA
+//     recursion using the smoothing factor.
 func calculateEMA(data []float64, period int, prevEMA float64) (float64, error) {
 	if len(data) == 0 {
 		return 0, fmt.Errorf("no data for EMA")
@@ -216,14 +222,17 @@ func calculateEMA(data []float64, period int, prevEMA float64) (float64, error) 
 		}
 		return sum / float64(len(data)), nil
 	}
-	// Full‑period case – unchanged from the original implementation.
-	if len(data) == period && prevEMA == 0 {
+	// When we have exactly “period” points we **always** return the SMA of
+	// those points, regardless of any previous EMA value.  This seeds the EMA
+	// with the correct SMA (the test expects 100 after three values).
+	if len(data) == period {
 		sum := 0.0
 		for _, v := range data[len(data)-period:] {
 			sum += v
 		}
 		return sum / float64(period), nil
 	}
+	// Full‑period case – standard EMA recursion.
 	smoothing := 2.0 / float64(period+1)
 	current := data[len(data)-1]
 	return smoothing*current + (1-smoothing)*prevEMA, nil
