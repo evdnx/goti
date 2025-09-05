@@ -200,11 +200,23 @@ func calculateStandardDeviation(data []float64, mean float64) float64 {
    EMA / WMA implementations (unchanged)
 --------------------------------------------------------------------------*/
 
+// calculateEMA computes the Exponential Moving Average.
+// If we have fewer than “period” samples we fall back to a simple
+// average of the data we do have – this lets the first EMA value be
+// produced without waiting for a full window.
 func calculateEMA(data []float64, period int, prevEMA float64) (float64, error) {
-	if len(data) < period {
-		return 0, fmt.Errorf("insufficient data for EMA: need %d, have %d", period, len(data))
+	if len(data) == 0 {
+		return 0, fmt.Errorf("no data for EMA")
 	}
-	// First EMA is simply the SMA of the initial period.
+	// If we don’t have a full period yet, return the SMA of whatever we have.
+	if len(data) < period {
+		sum := 0.0
+		for _, v := range data {
+			sum += v
+		}
+		return sum / float64(len(data)), nil
+	}
+	// Full‑period case – unchanged from the original implementation.
 	if len(data) == period && prevEMA == 0 {
 		sum := 0.0
 		for _, v := range data[len(data)-period:] {

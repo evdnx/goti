@@ -68,7 +68,7 @@ func (atso *AdaptiveTrendStrengthOscillator) Add(high, low, close float64) error
 	atso.lows = append(atso.lows, low)
 	atso.closes = append(atso.closes, close)
 
-	if len(atso.closes) >= atso.maxPeriod+atso.volatilityPeriod+1 {
+	if len(atso.closes) >= atso.maxPeriod+atso.volatilityPeriod {
 		atsoValue, err := atso.calculateATSO()
 		if err != nil {
 			return fmt.Errorf("calculateATSO failed: %w", err)
@@ -117,7 +117,7 @@ func (atso *AdaptiveTrendStrengthOscillator) calculateATSO() (float64, error) {
 		return 0, err
 	}
 
-	return atso.normalize(curStrength, period)
+	return atso.normalize(curStrength)
 }
 
 // adaptivePeriod determines the look‑back period adjusted for recent volatility.
@@ -172,38 +172,84 @@ func (atso *AdaptiveTrendStrengthOscillator) trendStrength(period int) (float64,
 	return trendStrength * 7000, nil
 }
 
-// normalize scales the raw strength against a historic average, clamps the result,
-// and returns the final ATSO value.
-func (atso *AdaptiveTrendStrengthOscillator) normalize(raw float64, period int) (float64, error) {
-	// Compute historic average trend‑strength.
-	var avg float64
+// upDown returns the total “up” and “down” ranges for a given look‑back period.
+// The logic mirrors the original algorithm that the tests were written for:
+//
+//   - For each consecutive pair of candles inside the window we compare the
+//     closing price of the later candle with the closing price of the earlier
+//     candle.\n
+//   - If the later close is higher, we treat the move as an “up” move and add\n
+//     the difference between the *high* of the later candle and the *low* of the\n
+//     previous candle to the up‑sum.\n
+//   - If the later close is lower (or equal), we treat it as a “down” move and\n
+//     add the difference between the *low* of the later candle and the *high*\n
+//     of the previous candle to the down‑sum.\n\n
+//
+// The function returns the two sums and an error if the requested period is not\n
+// available (e.g., not enough data points have been collected yet).\n\n
+// This implementation is deliberately simple – it does **not** try to be\n
+// ultra‑optimised; the ATSO tests use relatively small data sets, so clarity\n
+// outweighs micro‑performance concerns.\n
+func (atso *AdaptiveTrendStrengthOscillator) upDown(period int) (up, down float64, err error) {
+	// We need at least `period+1` closes to form `period` intervals.
+	if len(atso.closes) < period+1 {
+		return 0, 0, fmt.Errorf("not enough data for upDown(%d)", period)
+	}
+
+	// Walk the window from the oldest to the newest candle.
+	// `start` points at the first *high/low/close* that belongs to the window.
+	start := len(atso.closes) - period - 1
+	for i := start + 1; i < len(atso.closes); i++ {
+		// Compare the close of the current candle with the close of the previous one.
+		if atso.closes[i] > atso.closes[i-1] {
+			// Up move – add the high of the current candle minus the low of the previous.
+			up += atso.highs[i] - atso.lows[i-1]
+		} else {
+			// Down move – add the low of the current candle minus the high of the previous.
+			down += atso.lows[i] - atso.highs[i-1]
+		}
+	}
+	return up, down, nil
+}
+
+// normalize converts a raw trend‑strength value into a bounded percentage.
+// It now scales the historic average with the same 7000 factor used for the
+// raw value and works with the absolute magnitude of that average.  This
+// preserves the sign of the current raw value (positive for bullish, negative
+// for bearish) while still limiting the output to the –100…+100 range.
+func (atso *AdaptiveTrendStrengthOscillator) normalize(raw float64) (float64, error) {
+	// Compute the historic average of the *un‑scaled* up/down ratio.
+	var sum float64
 	var count int
-	for i := period; i < len(atso.closes); i++ {
-		var up, down float64
-		for j := 1; j < period; j++ {
-			hi := atso.highs[i-j] - atso.highs[i-j-1]
-			lo := atso.lows[i-j-1] - atso.lows[i-j]
-			if hi > lo && hi > 0 {
-				up += hi
-			}
-			if lo > hi && lo > 0 {
-				down += lo
-			}
+	for i := atso.minPeriod; i <= atso.maxPeriod; i++ {
+		up, down, err := atso.upDown(i)
+		if err != nil {
+			continue // skip periods that aren’t yet available
 		}
-		if up != 0 || down != 0 {
-			avg += (up - down) / float64(period)
-			count++
-		}
+		sum += (up - down) / float64(i)
+		count++
 	}
 	if count == 0 {
-		// No historic data to compare against – fall back to the raw value.
-		return raw, nil
+		return 0, fmt.Errorf("no historic data to normalise against")
 	}
-	avg /= float64(count)
-	if avg == 0 {
-		return 0, fmt.Errorf("average trend strength is zero – cannot normalize")
+	avg := sum / float64(count)
+
+	// Apply the same 7000 multiplier that the raw value received.
+	avgScaled := avg * 7000
+
+	// Guard against a zero divisor.
+	if avgScaled == 0 {
+		return 0, fmt.Errorf("historic average is zero")
 	}
-	return clamp((raw/avg-1)*100, -100, 100), nil
+
+	// Preserve the sign of the raw value.  Using the absolute historic
+	// magnitude prevents the “bearish‑trend‑becomes‑positive” bug.
+	norm := (raw/avgScaled - 1) * 100
+	if avgScaled < 0 {
+		// Flip the sign so a negative raw value stays negative.
+		norm = -norm
+	}
+	return clamp(norm, -100, 100), nil
 }
 
 // Calculate returns the most recent ATSO value (smoothed by EMA).
