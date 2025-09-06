@@ -42,7 +42,7 @@ func NewAdaptiveTrendStrengthOscillatorWithParams(minPeriod, maxPeriod, volatili
 	if minPeriod < 1 || maxPeriod < minPeriod || volatilityPeriod < 1 {
 		return nil, errors.New("invalid periods")
 	}
-	ema, err := NewMovingAverage(EMA, config.ATSEMAperiod)
+	ema, err := NewMovingAverage(EMAMovingAverage, config.ATSEMAperiod)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create EMA: %w", err)
 	}
