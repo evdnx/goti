@@ -12,9 +12,9 @@ import (
 type MovingAverageType string
 
 const (
-	EMA MovingAverageType = "EMA"
-	SMA MovingAverageType = "SMA"
-	WMA MovingAverageType = "WMA"
+	EMAMovingAverage MovingAverageType = "EMA"
+	SMAMovingAverage MovingAverageType = "SMA"
+	WMAMovingAverage MovingAverageType = "WMA"
 )
 
 // MovingAverage calculates Simple or Exponential Moving Average
@@ -30,7 +30,7 @@ func NewMovingAverage(maType MovingAverageType, period int) (*MovingAverage, err
 	if period < 1 {
 		return nil, errors.New("period must be at least 1")
 	}
-	if maType != SMA && maType != EMA && maType != WMA {
+	if maType != SMAMovingAverage && maType != EMAMovingAverage && maType != WMAMovingAverage {
 		return nil, errors.New("invalid moving average type")
 	}
 	return &MovingAverage{
@@ -86,7 +86,7 @@ func (ma *MovingAverage) Calculate() (float64, error) {
 	}
 
 	switch ma.maType {
-	case SMA:
+	case SMAMovingAverage:
 		// Simple Moving Average – average the values we have.
 		sum := 0.0
 		for _, v := range ma.values {
@@ -94,7 +94,7 @@ func (ma *MovingAverage) Calculate() (float64, error) {
 		}
 		return sum / float64(ma.period), nil
 
-	case EMA:
+	case EMAMovingAverage:
 		// Exponential Moving Average – uses the previously‑calculated EMA.
 		ema, err := calculateEMA(ma.values, ma.period, ma.lastValue)
 		if err != nil {
@@ -104,7 +104,7 @@ func (ma *MovingAverage) Calculate() (float64, error) {
 		ma.lastValue = ema
 		return ema, nil
 
-	case WMA:
+	case WMAMovingAverage:
 		// Weighted Moving Average.
 		return calculateWMA(ma.values, ma.period)
 

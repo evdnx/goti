@@ -91,7 +91,7 @@ func TestCalculateStandardDeviation(t *testing.T) {
 	--------------------------------------------------------------
 */
 func TestSimpleMovingAverage(t *testing.T) {
-	ma, err := NewMovingAverage(SMA, 3) // use the constant defined in the package
+	ma, err := NewMovingAverage(SMAMovingAverage, 3) // use the constant defined in the package
 	if err != nil {
 		t.Fatalf("unexpected error creating SMA: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestSimpleMovingAverage(t *testing.T) {
 }
 
 func TestExponentialMovingAverage(t *testing.T) {
-	ma, err := NewMovingAverage(EMA, 3) // use the constant defined in the package
+	ma, err := NewMovingAverage(EMAMovingAverage, 3) // use the constant defined in the package
 	if err != nil {
 		t.Fatalf("unexpected error creating EMA: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestExponentialMovingAverage(t *testing.T) {
 }
 
 func TestWeightedMovingAverage(t *testing.T) {
-	ma, err := NewMovingAverage(WMA, 3) // use the constant defined in the package
+	ma, err := NewMovingAverage(WMAMovingAverage, 3) // use the constant defined in the package
 	if err != nil {
 		t.Fatalf("unexpected error creating WMA: %v", err)
 	}
