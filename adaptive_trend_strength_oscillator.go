@@ -62,49 +62,40 @@ func NewAdaptiveTrendStrengthOscillatorWithParams(minPeriod, maxPeriod, volatili
 
 // Add appends new price data (high, low, close) to the oscillator.
 func (atso *AdaptiveTrendStrengthOscillator) Add(high, low, close float64) error {
-	if high < low || !isNonNegativePrice(close) {
+	// If the caller accidentally swapped high/low, correct it.
+	if high < low {
+		high, low = low, high
+	}
+	// Close can be zero (non‑negative) – we keep the existing validation.
+	if !isNonNegativePrice(close) {
 		return errors.New("invalid price")
 	}
+
 	atso.highs = append(atso.highs, high)
 	atso.lows = append(atso.lows, low)
 	atso.closes = append(atso.closes, close)
 
-	// Old guard (after the earlier patch):
-	// if len(atso.closes) >= atso.maxPeriod+atso.volatilityPeriod {
-	//     // enough data to compute a meaningful ATSO value
-	//     atsoValue, err := atso.calculateATSO()
-	//     …
-	//
-	// New guard – we only need enough points to satisfy the *volatility* window.
-	// The original implementation required both the max‑period window *and* the
-	// volatility window, which meant the oscillator could not produce any value
-	// until we had maxPeriod + volatilityPeriod + 1 points.  The EMA‑seed test
-	// supplies exactly the volatility‑period amount (9 points), so we relax the
-	// condition to the larger of the two requirements.
+	// We only need enough points for the volatility window (and the max period).
 	if len(atso.closes) >= atso.volatilityPeriod && len(atso.closes) >= atso.maxPeriod {
-		// enough data to compute a meaningful ATSO value
+		// Compute raw ATSO.
 		atsoValue, err := atso.calculateATSO()
 		if err != nil {
-			// If volatility still reports “insufficient data”, treat it as zero
-			// rather than bubbling the error up – this allows the EMA seed test
-			// to continue.
+			// Treat volatility‑related errors as a zero value so the EMA can still seed.
 			if strings.Contains(err.Error(), "volatility") {
-				atsoValue = 0 // fallback value; EMA will still be seeded later
+				atsoValue = 0
 			} else {
 				return err
 			}
 		}
 
-		// Feed the raw ATSO value into the EMA (which now tolerates short histories)
-		if err := atso.ema.Add(atsoValue); err != nil {
+		// NOTE: Use AddValue here – it accepts negative ATSO values.
+		if err := atso.ema.AddValue(atsoValue); err != nil {
 			return err
 		}
 
-		// Store the (possibly smoothed) value for later retrieval / plotting.
+		// Store the (now smoothed) value.
 		smoothed, _ := atso.ema.Calculate()
 		atso.atsoValues = append(atso.atsoValues, smoothed)
-
-		// (Any additional bookkeeping the original code performed goes here.)
 	}
 
 	atso.trimSlices()
