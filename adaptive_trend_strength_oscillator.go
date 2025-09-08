@@ -363,6 +363,7 @@ func (atso *AdaptiveTrendStrengthOscillator) Reset() error {
 //  Plotting support – produces data structures suitable for CSV/JSON export
 // ---------------------------------------------------------------------------
 
+// GetPlotData – produces data structures suitable for CSV/JSON export
 func (atso *AdaptiveTrendStrengthOscillator) GetPlotData() []PlotData {
 	raw := atso.RawValues()
 	smooth := atso.SmoothedValues()
@@ -376,15 +377,18 @@ func (atso *AdaptiveTrendStrengthOscillator) GetPlotData() []PlotData {
 	for i := 0; i < n; i++ {
 		x[i] = float64(i)
 	}
+
 	return []PlotData{
 		{
-			Name: "Raw",
+			// Raw, unsmoothed ATSO values
+			Name: "ATSO (raw)",
 			X:    x,
 			Y:    raw[:n],
 			Type: "line",
 		},
 		{
-			Name: "Smooth",
+			// EMA‑smoothed ATSO values – the line most traders watch for cross‑overs
+			Name: "ATSO (signal)",
 			X:    x,
 			Y:    smooth[:n],
 			Type: "line",

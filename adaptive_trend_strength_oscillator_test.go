@@ -181,10 +181,10 @@ func TestATSO_PlotData(t *testing.T) {
 	if len(data) != 2 {
 		t.Fatalf("expected 2 PlotData series (ATSO + Signals), got %d", len(data))
 	}
-	if data[0].Name != "Adaptive Trend Strength Oscillator" {
+	if data[0].Name != "ATSO (raw)" {
 		t.Fatalf("unexpected name for first series: %s", data[0].Name)
 	}
-	if data[1].Name != "Signals" {
+	if data[1].Name != "ATSO (signal)" {
 		t.Fatalf("unexpected name for second series: %s", data[1].Name)
 	}
 	if len(data[0].X) != len(atso.atsoValues) {
