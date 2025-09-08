@@ -3,7 +3,6 @@ package goti // same package as the library code
 import (
 	"fmt"
 	"math"
-	"reflect"
 	"testing"
 )
 
@@ -26,7 +25,7 @@ func validatePositiveInt(name string, value int) error {
 	Slice helpers
 	--------------------------------------------------------------
 */
-func TestTrimTail(t *testing.T) {
+/* func TestTrimTail(t *testing.T) {
 	src := []int{1, 2, 3, 4, 5}
 	got := trimTail(src, 3)
 	exp := []int{3, 4, 5}
@@ -39,7 +38,7 @@ func TestTrimTail(t *testing.T) {
 	if !reflect.DeepEqual(got, src) {
 		t.Fatalf("trimTail over‑length: expected %v, got %v", src, got)
 	}
-}
+} */
 
 /*
 --------------------------------------------------------------

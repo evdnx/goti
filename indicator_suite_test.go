@@ -40,7 +40,7 @@ func TestIndicatorSuite(t *testing.T) {
 	vwaoBullish, _ := suite.vwao.IsBullishCrossover()
 	hmaBullish, _ := suite.hma.IsBullishCrossover()
 	amdoBullish, _ := suite.amdo.IsBullishCrossover()
-	atsoBullish, _ := suite.atso.IsBullishCrossover()
+	atsoBullish := suite.atso.IsBullishCrossover()
 	t.Logf("RSI: %v, MFI: %v, VWAO: %v, HMA: %v, AMDO: %v, ATSO: %v", rsiBullish, mfiBullish, vwaoBullish, hmaBullish, amdoBullish, atsoBullish)
 	signal, err := suite.GetCombinedSignal()
 	if err != nil {

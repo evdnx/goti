@@ -96,18 +96,13 @@ func TestATSO_Crossovers(t *testing.T) {
 	}
 
 	// After the switch we should have seen a bullish crossover.
-	bull, err := atso.IsBullishCrossover()
-	if err != nil {
-		t.Fatalf("IsBullishCrossover error: %v", err)
-	}
+	bull := atso.IsBullishCrossover()
 	if !bull {
 		t.Fatalf("expected bullish crossover after trend reversal")
 	}
+
 	// And there should be no bearish crossover at the same moment.
-	bear, err := atso.IsBearishCrossover()
-	if err != nil {
-		t.Fatalf("IsBearishCrossover error: %v", err)
-	}
+	bear := atso.IsBearishCrossover()
 	if bear {
 		t.Fatalf("did not expect a bearish crossover at this point")
 	}
@@ -133,7 +128,7 @@ func TestATSO_Reset(t *testing.T) {
 		len(atso.GetCloses()) != 0 {
 		t.Fatalf("Reset did not clear all internal slices")
 	}
-	if atso.GetLastValue() != 0 {
+	if v, _ := atso.GetLastValue(); v != 0 {
 		t.Fatalf("Reset should zero out lastValue")
 	}
 }
@@ -181,7 +176,7 @@ func TestATSO_PlotData(t *testing.T) {
 			t.Fatalf("Add error: %v", err)
 		}
 	}
-	data := atso.GetPlotData(1622505600000, 60000) // start timestamp + 1‑minute interval
+	data := atso.GetPlotData() // start timestamp + 1‑minute interval
 
 	if len(data) != 2 {
 		t.Fatalf("expected 2 PlotData series (ATSO + Signals), got %d", len(data))

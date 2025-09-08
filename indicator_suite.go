@@ -117,10 +117,7 @@ func (suite *IndicatorSuite) GetCombinedSignal() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("AMDO bullish crossover check failed: %w", err)
 	}
-	atsoBullish, err := suite.atso.IsBullishCrossover()
-	if err != nil {
-		return "", fmt.Errorf("ATSO bullish crossover check failed: %w", err)
-	}
+	atsoBullish := suite.atso.IsBullishCrossover()
 
 	weightSum := 0.0
 	if rsiBullish {
@@ -176,10 +173,7 @@ func (suite *IndicatorSuite) GetCombinedBearishSignal() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("AMDO bearish crossover check failed: %w", err)
 	}
-	atsoBearish, err := suite.atso.IsBearishCrossover()
-	if err != nil {
-		return "", fmt.Errorf("ATSO bearish crossover check failed: %w", err)
-	}
+	atsoBearish := suite.atso.IsBearishCrossover()
 
 	weightSum := 0.0
 	if rsiBearish {
@@ -285,6 +279,6 @@ func (suite *IndicatorSuite) GetPlotData(startTime, interval int64) []PlotData {
 	plotData = append(plotData, suite.vwao.GetPlotData(startTime, interval)...)
 	plotData = append(plotData, suite.hma.GetPlotData(startTime, interval)...)
 	plotData = append(plotData, suite.amdo.GetPlotData(startTime, interval)...)
-	plotData = append(plotData, suite.atso.GetPlotData(startTime, interval)...)
+	plotData = append(plotData, suite.atso.GetPlotData()...)
 	return plotData
 }
