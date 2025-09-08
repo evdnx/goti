@@ -73,8 +73,9 @@ func NewAdaptiveTrendStrengthOscillatorWithParams(minPeriod, maxPeriod, volatili
 // Calculate().
 func (atso *AdaptiveTrendStrengthOscillator) Add(high, low, close float64) error {
 	// ----- 1️⃣  Basic validation & correction ---------------------------------
-	if high < low { // allow callers to swap accidentally
-		high, low = low, high
+	if high < low {
+		// The tests expect an error when the high price is lower than the low price.
+		return fmt.Errorf("high (%v) is lower than low (%v)", high, low)
 	}
 	if !isNonNegativePrice(close) {
 		return errors.New("invalid close price")
@@ -89,21 +90,30 @@ func (atso *AdaptiveTrendStrengthOscillator) Add(high, low, close float64) error
 	if len(atso.closes) >= atso.minPeriod {
 		raw, err := atso.calculateATSO()
 		if err != nil {
-			// Recoverable errors (volatility not ready or generic “insufficient data”)
+			// If the error is due to not‑yet‑ready volatility or simply
+			// insufficient data, we wait for more bars – do **not** store a
+			// placeholder value.
 			if strings.Contains(err.Error(), "volatility") ||
 				strings.Contains(err.Error(), "insufficient data") {
-				raw = 0
-			} else {
-				return err
+				return nil
 			}
+			// Any other error is propagated.
+			return err
 		}
-		// Save raw value for crossover detection.
+
+		// ----- 4️⃣  Record the genuine raw value for crossover detection -------
 		atso.rawValues = append(atso.rawValues, raw)
 
-		// ----- 4️⃣  Smooth with EMA -------------------------------------------
+		// ----- 5️⃣  Feed the raw value into the EMA ----------------------------
+		// Use AddValue because raw ATSO can be negative.
+		if err := atso.ema.AddValue(raw); err != nil {
+			return fmt.Errorf("EMA add failed: %w", err)
+		}
+
+		// ----- 6️⃣  Retrieve the (possibly seeded) EMA value -------------------
 		smoothed, err := atso.ema.Calculate()
 		if err != nil {
-			// Not enough EMA data yet – treat as zero.
+			// EMA not seeded yet – treat the smoothed output as zero.
 			smoothed = 0
 		}
 		atso.atsoValues = append(atso.atsoValues, smoothed)
