@@ -6,55 +6,131 @@ import (
 	"math"
 )
 
-// AverageTrueRange calculates the Average True Range
+// AverageTrueRange calculates the Average True Range (ATR).
 type AverageTrueRange struct {
-	period    int
-	highs     []float64
-	lows      []float64
-	closes    []float64
-	atrValues []float64
-	lastValue float64
+	period        int
+	highs         []float64
+	lows          []float64
+	closes        []float64
+	atrValues     []float64
+	lastValue     float64
+	validateClose bool // optional validation of close price against high/low
 }
 
-// NewAverageTrueRange initializes with standard period (14)
+/*
+   Constructors
+   ------------
+
+   NewAverageTrueRange creates an ATR calculator with the default period (14).
+
+   NewAverageTrueRangeWithParams creates an ATR calculator with a custom period.
+   Functional options can be supplied to tweak behaviour (e.g. disabling the
+   close‑price validation).
+*/
+
+// NewAverageTrueRange creates an ATR calculator with the default period (14).
 func NewAverageTrueRange() (*AverageTrueRange, error) {
 	return NewAverageTrueRangeWithParams(14)
 }
 
-// NewAverageTrueRangeWithParams initializes with custom period
-func NewAverageTrueRangeWithParams(period int) (*AverageTrueRange, error) {
+// NewAverageTrueRangeWithParams creates an ATR calculator with a custom period.
+// Additional functional options can be passed to modify the instance.
+func NewAverageTrueRangeWithParams(period int, opts ...ATROption) (*AverageTrueRange, error) {
 	if period < 1 {
 		return nil, errors.New("period must be at least 1")
 	}
-	return &AverageTrueRange{
-		period:    period,
-		highs:     make([]float64, 0, period+1),
-		lows:      make([]float64, 0, period+1),
-		closes:    make([]float64, 0, period+1),
-		atrValues: make([]float64, 0, period),
-	}, nil
+	atr := &AverageTrueRange{
+		period:        period,
+		highs:         make([]float64, 0, period+1),
+		lows:          make([]float64, 0, period+1),
+		closes:        make([]float64, 0, period+1),
+		atrValues:     make([]float64, 0, period),
+		validateClose: true, // enabled by default
+	}
+	for _, opt := range opts {
+		opt(atr)
+	}
+	return atr, nil
 }
 
-// Add appends new price data
-func (atr *AverageTrueRange) Add(high, low, close float64) error {
-	if high < low || !isValidPrice(close) {
-		return errors.New("invalid price")
+/* ---------- Functional options ---------- */
+
+// ATROption configures an AverageTrueRange instance.
+type ATROption func(*AverageTrueRange)
+
+// WithCloseValidation enables or disables the check that the close price lies
+// between the high and low of the same candle.
+func WithCloseValidation(enabled bool) ATROption {
+	return func(a *AverageTrueRange) { a.validateClose = enabled }
+}
+
+/* ---------- Public API ---------- */
+
+// AddCandle appends a new OHLC data point.
+// It validates the inputs and, when enough data is present, updates the ATR series.
+func (atr *AverageTrueRange) AddCandle(high, low, close float64) error {
+	if high < low {
+		return errors.New("high must be >= low")
 	}
+	if !isValidPrice(high) || !isValidPrice(low) {
+		return errors.New("high/low contain invalid price")
+	}
+	if atr.validateClose && (close < low || close > high) {
+		return fmt.Errorf("close price %.4f out of bounds [%.4f, %.4f]", close, low, high)
+	}
+	if !isValidPrice(close) {
+		return errors.New("invalid close price")
+	}
+
 	atr.highs = append(atr.highs, high)
 	atr.lows = append(atr.lows, low)
 	atr.closes = append(atr.closes, close)
+
+	// Compute ATR once we have period+1 closing prices.
 	if len(atr.closes) >= atr.period+1 {
-		atrValue, err := atr.calculateATR()
-		if err == nil {
-			atr.atrValues = append(atr.atrValues, atrValue)
-			atr.lastValue = atrValue
+		val, err := atr.calculateATR()
+		if err != nil {
+			return err
 		}
+		atr.atrValues = append(atr.atrValues, val)
+		atr.lastValue = val
 	}
 	atr.trimSlices()
 	return nil
 }
 
-// trimSlices limits slice sizes
+// Calculate returns the most recent ATR value.
+// An error is returned if the series has not yet produced any output.
+func (atr *AverageTrueRange) Calculate() (float64, error) {
+	if len(atr.atrValues) == 0 {
+		return 0, fmt.Errorf("ATR not ready – need at least %d data points", atr.period+1)
+	}
+	return atr.lastValue, nil
+}
+
+// Reset clears all stored data and starts fresh.
+func (atr *AverageTrueRange) Reset() {
+	atr.highs = atr.highs[:0]
+	atr.lows = atr.lows[:0]
+	atr.closes = atr.closes[:0]
+	atr.atrValues = atr.atrValues[:0]
+	atr.lastValue = 0
+}
+
+// SetPeriod changes the look‑back period. All historic data is discarded because
+// the previous window no longer aligns with the new period.
+func (atr *AverageTrueRange) SetPeriod(period int) error {
+	if period < 1 {
+		return errors.New("period must be at least 1")
+	}
+	atr.period = period
+	atr.Reset()
+	return nil
+}
+
+/* ---------- Internal helpers ---------- */
+
+// trimSlices ensures the internal slices never exceed the configured window.
 func (atr *AverageTrueRange) trimSlices() {
 	if len(atr.closes) > atr.period+1 {
 		atr.highs = atr.highs[len(atr.highs)-atr.period-1:]
@@ -66,91 +142,32 @@ func (atr *AverageTrueRange) trimSlices() {
 	}
 }
 
-// calculateATR computes the Average True Range value
+// trueRange computes the true‑range for a given index (index refers to the
+// position inside the internal slices, not the original data stream).
+func (atr *AverageTrueRange) trueRange(idx int) float64 {
+	highLow := atr.highs[idx] - atr.lows[idx]
+	highPrevClose := math.Abs(atr.highs[idx] - atr.closes[idx-1])
+	lowPrevClose := math.Abs(atr.lows[idx] - atr.closes[idx-1])
+	return math.Max(highLow, math.Max(highPrevClose, lowPrevClose))
+}
+
+// calculateATR aggregates the true‑range over the configured period and returns
+// the average.
 func (atr *AverageTrueRange) calculateATR() (float64, error) {
 	if len(atr.closes) < atr.period+1 {
 		return 0, fmt.Errorf("insufficient data: need %d, have %d", atr.period+1, len(atr.closes))
 	}
-	sumTR := 0.0
-	for i := 1; i <= atr.period; i++ {
-		idx := len(atr.closes) - atr.period + i - 1
-		highLow := atr.highs[idx] - atr.lows[idx]
-		highPrevClose := math.Abs(atr.highs[idx] - atr.closes[idx-1])
-		lowPrevClose := math.Abs(atr.lows[idx] - atr.closes[idx-1])
-		tr := math.Max(highLow, math.Max(highPrevClose, lowPrevClose))
-		sumTR += tr
+	start := len(atr.closes) - atr.period
+	var sumTR float64
+	for i := start; i < len(atr.closes); i++ {
+		sumTR += atr.trueRange(i)
 	}
 	return sumTR / float64(atr.period), nil
 }
 
-// Calculate returns the current ATR value
-func (atr *AverageTrueRange) Calculate() (float64, error) {
-	if len(atr.atrValues) == 0 {
-		return 0, errors.New("no ATR data")
-	}
-	return atr.lastValue, nil
-}
+/* ---------- Optional getters (defensive copies) ---------- */
 
-// GetLastValue returns the last ATR value
-func (atr *AverageTrueRange) GetLastValue() float64 {
-	return atr.lastValue
-}
-
-// Reset clears all data
-func (atr *AverageTrueRange) Reset() {
-	atr.highs = atr.highs[:0]
-	atr.lows = atr.lows[:0]
-	atr.closes = atr.closes[:0]
-	atr.atrValues = atr.atrValues[:0]
-	atr.lastValue = 0
-}
-
-// SetPeriod updates the period
-func (atr *AverageTrueRange) SetPeriod(period int) error {
-	if period < 1 {
-		return errors.New("period must be at least 1")
-	}
-	atr.period = period
-	atr.trimSlices()
-	return nil
-}
-
-// GetHighs returns a copy of high prices
-func (atr *AverageTrueRange) GetHighs() []float64 {
-	return copySlice(atr.highs)
-}
-
-// GetLows returns a copy of low prices
-func (atr *AverageTrueRange) GetLows() []float64 {
-	return copySlice(atr.lows)
-}
-
-// GetCloses returns a copy of close prices
-func (atr *AverageTrueRange) GetCloses() []float64 {
-	return copySlice(atr.closes)
-}
-
-// GetATRValues returns a copy of ATR values
-func (atr *AverageTrueRange) GetATRValues() []float64 {
-	return copySlice(atr.atrValues)
-}
-
-// GetPlotData returns data for visualization
-func (atr *AverageTrueRange) GetPlotData(startTime, interval int64) []PlotData {
-	var plotData []PlotData
-	if len(atr.atrValues) > 0 {
-		x := make([]float64, len(atr.atrValues))
-		timestamps := GenerateTimestamps(startTime, len(atr.atrValues), interval)
-		for i := range atr.atrValues {
-			x[i] = float64(i)
-		}
-		plotData = append(plotData, PlotData{
-			Name:      "Average True Range",
-			X:         x,
-			Y:         atr.atrValues,
-			Type:      "line",
-			Timestamp: timestamps,
-		})
-	}
-	return plotData
-}
+func (atr *AverageTrueRange) GetATRValues() []float64 { return copySlice(atr.atrValues) }
+func (atr *AverageTrueRange) GetHighs() []float64     { return copySlice(atr.highs) }
+func (atr *AverageTrueRange) GetLows() []float64      { return copySlice(atr.lows) }
+func (atr *AverageTrueRange) GetCloses() []float64    { return copySlice(atr.closes) }
