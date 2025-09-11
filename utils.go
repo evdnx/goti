@@ -8,6 +8,23 @@ import (
 	"strings"
 )
 
+// -----------------------------------------------------------------------------
+// Generic helpers
+// -----------------------------------------------------------------------------
+
+// keepLast returns the last n elements of a slice (or the whole slice if it is
+// shorter). It works for any element type thanks to Go generics.
+func keepLast[T any](s []T, n int) []T {
+	if len(s) > n {
+		return s[len(s)-n:]
+	}
+	return s
+}
+
+// -----------------------------------------------------------------------------
+// MovingAverage types
+// -----------------------------------------------------------------------------
+
 // MovingAverageType defines the type of moving average
 type MovingAverageType string
 
@@ -49,7 +66,7 @@ func NewMovingAverage(maType MovingAverageType, period int) (*MovingAverage, err
 // current MA value is needed.
 func (ma *MovingAverage) Add(value float64) error {
 	if !isNonNegativePrice(value) {
-		return errors.New("invalid value")
+		return fmt.Errorf("cannot add negative or NaN price %f", value)
 	}
 	ma.values = append(ma.values, value)
 	ma.trimSlices()
@@ -60,7 +77,7 @@ func (ma *MovingAverage) Add(value float64) error {
 // Like Add, it defers calculation until Calculate is called explicitly.
 func (ma *MovingAverage) AddValue(value float64) error {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
-		return errors.New("invalid value")
+		return fmt.Errorf("cannot add invalid value %f", value)
 	}
 	ma.values = append(ma.values, value)
 	ma.trimSlices()
@@ -71,11 +88,8 @@ func (ma *MovingAverage) AddValue(value float64) error {
    Core calculation
 --------------------------------------------------------------------------*/
 
-// trimSlices ensures the internal slice never exceeds the configured period.
 func (ma *MovingAverage) trimSlices() {
-	if len(ma.values) > ma.period {
-		ma.values = ma.values[len(ma.values)-ma.period:]
-	}
+	ma.values = keepLast(ma.values, ma.period)
 }
 
 // Calculate returns the current moving‑average value.
@@ -206,7 +220,7 @@ func calculateStandardDeviation(data []float64, mean float64) float64 {
 //     without waiting for a full window.
 //   - When we have **exactly** “period” samples we always return the *simple*
 //     average of those `period` points, even if a previous EMA value exists.
-//     This guarantees that the very first EMA after the full period matches
+//     This guarantees that the first EMA after the full period matches
 //     the SMA of the same points (the behaviour the unit test expects).
 //   - Once we have more than “period” points we switch to the classic EMA
 //     recursion using the smoothing factor.
@@ -227,8 +241,8 @@ func calculateEMA(data []float64, period int, prevEMA float64) (float64, error) 
 	// with the correct SMA (the test expects 100 after three values).
 	if len(data) == period {
 		sum := 0.0
-		for _, v := range data[len(data)-period:] {
-			sum += v
+		for i := len(data) - period; i < len(data); i++ {
+			sum += data[i]
 		}
 		return sum / float64(period), nil
 	}

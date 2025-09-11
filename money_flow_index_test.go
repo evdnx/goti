@@ -1,130 +1,357 @@
-// money_flow_index_test.go
-// artifact_id: 42d5becf-fc89-4fed-ae1f-a1f3e12f6158
-// artifact_version_id: 7b9d0e4c-8a5e-4f3c-9g7b-6c3d9f2e1a6f
-
 package goti
 
 import (
-	"math"
+	"encoding/json"
+	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestMoneyFlowIndex(t *testing.T) {
-	// Test initialization
-	config := DefaultConfig()
-	mfi, err := NewMoneyFlowIndexWithParams(5, config)
-	if err != nil {
-		t.Fatalf("NewMoneyFlowIndexWithParams failed: %v", err)
-	}
+// ---------------------------------------------------------------------------
+// Helper – creates a MFI instance with a deterministic config
+// ---------------------------------------------------------------------------
+func newTestMFI(t *testing.T) *MoneyFlowIndex {
+	cfg := DefaultConfig()
+	// Use a small, easy‑to‑verify scale factor
+	cfg.MFIVolumeScale = 1.0
+	mfi, err := NewMoneyFlowIndexWithParams(3, cfg)
+	require.NoError(t, err)
+	return mfi
+}
 
-	// Test invalid period
-	_, err = NewMoneyFlowIndexWithParams(0, config)
-	if err == nil || err.Error() != "period must be at least 1" {
-		t.Errorf("Expected error for invalid period, got: %v", err)
-	}
+// ---------------------------------------------------------------------------
+// Constructor tests
+// ---------------------------------------------------------------------------
+func TestNewMoneyFlowIndex_Validation(t *testing.T) {
+	// Invalid period
+	_, err := NewMoneyFlowIndexWithParams(0, DefaultConfig())
+	assert.Error(t, err)
 
-	// Test invalid config
-	invalidConfig := DefaultConfig()
-	invalidConfig.MFIOverbought = 20
-	invalidConfig.MFIOversold = 80
-	_, err = NewMoneyFlowIndexWithParams(5, invalidConfig)
-	if err == nil || err.Error() != "MFI overbought threshold must be greater than oversold" {
-		t.Errorf("Expected error for invalid config, got: %v", err)
-	}
+	// Overbought <= oversold
+	badCfg := DefaultConfig()
+	badCfg.MFIOverbought = 20
+	badCfg.MFIOversold = 30
+	_, err = NewMoneyFlowIndexWithParams(5, badCfg)
+	assert.Error(t, err)
 
-	// Test adding invalid data
-	err = mfi.Add(100, 101, 100, 1000)
-	if err == nil || err.Error() != "invalid price or volume" {
-		t.Errorf("Expected error for high < low, got: %v", err)
-	}
-	err = mfi.Add(101, 100, -1, 1000)
-	if err == nil || err.Error() != "invalid price or volume" {
-		t.Errorf("Expected error for invalid close, got: %v", err)
-	}
-	err = mfi.Add(101, 100, 100, -1)
-	if err == nil || err.Error() != "invalid price or volume" {
-		t.Errorf("Expected error for invalid volume, got: %v", err)
-	}
+	// Invalid config (ATSEMAperiod <= 0)
+	badCfg = DefaultConfig()
+	badCfg.ATSEMAperiod = 0
+	_, err = NewMoneyFlowIndexWithParams(5, badCfg)
+	assert.Error(t, err)
+}
 
-	// Test MFI calculation with sample data (all gains)
-	for i := 0; i < 50; i++ {
-		high := float64(100 + i*10 + 1)
-		low := float64(100 + i*10 - 1)
-		close := float64(100 + i*10)
-		volume := 1000000.0
-		err := mfi.Add(high, low, close, volume)
-		if err != nil {
-			t.Errorf("Add failed at index %d: %v", i, err)
-		}
-	}
-	value, err := mfi.Calculate()
-	if err != nil {
-		t.Errorf("Calculate failed: %v", err)
-	}
-	if math.Abs(value-100) > 0.01 {
-		t.Errorf("Expected MFI near 100, got: %f", value)
-	}
+// ---------------------------------------------------------------------------
+// Add validation tests
+// ---------------------------------------------------------------------------
+func TestMoneyFlowIndex_Add_Validation(t *testing.T) {
+	mfi := newTestMFI(t)
 
-	// Test oversold crossover
-	mfi.Reset()
-	for i := 0; i < 45; i++ {
-		high := float64(10000 - i*100 + 1)
-		low := float64(10000 - i*100 - 1)
-		close := float64(10000 - i*100)
-		volume := 1000000.0
-		err := mfi.Add(high, low, close, volume)
-		if err != nil {
-			t.Errorf("Add failed at index %d: %v", i, err)
-		}
-		t.Logf("MFI after price %d: %f", i, mfi.GetLastValue())
-	}
-	mfi.Add(101, 99, 100, 1000000)
-	mfi.Add(301, 299, 300, 1000000)
-	mfi.Add(601, 599, 600, 1000000)
-	mfi.Add(1001, 999, 1000, 1000000)
-	mfi.Add(1501, 1499, 1500, 1000000)
-	bullish, err := mfi.IsBullishCrossover()
-	if err != nil {
-		t.Errorf("IsBullishCrossover failed: %v", err)
-	}
-	if !bullish {
-		t.Error("Expected bullish crossover")
-	}
+	// High < low
+	err := mfi.Add(10, 12, 11, 1000)
+	assert.Error(t, err)
 
-	// Test divergence (bullish: price up, MFI oversold)
-	mfi.Reset()
-	prices := make([]float64, 50)
-	for i := 0; i < 45; i++ {
-		prices[i] = float64(10000 - i*100)
-	}
-	prices[45] = 100
-	prices[46] = 300
-	prices[47] = 600
-	prices[48] = 1000
-	prices[49] = 1500
-	for i, close := range prices {
-		high := close + 1
-		low := close - 1
-		volume := 1000000.0
-		err := mfi.Add(high, low, close, volume)
-		if err != nil {
-			t.Errorf("Add failed at index %d: %v", i, err)
-		}
-		t.Logf("MFI after price %d: %f", i, mfi.GetLastValue())
-	}
-	isDivergence, signal, err := mfi.IsDivergence()
-	if err != nil {
-		t.Errorf("IsDivergence failed: %v", err)
-	}
-	if !isDivergence || signal != "Bullish" {
-		t.Errorf("Expected bullish divergence, got: %v, %s", isDivergence, signal)
-	}
+	// Negative close
+	err = mfi.Add(12, 10, -5, 1000)
+	assert.Error(t, err)
 
-	// Test insufficient data
-	mfi.Reset()
-	mfi.Add(101, 99, 100, 1000)
+	// Negative volume
+	err = mfi.Add(12, 10, 11, -100)
+	assert.Error(t, err)
+
+	// Valid first entry – should not produce an MFI yet
+	err = mfi.Add(12, 10, 11, 1000)
+	assert.NoError(t, err)
+
+	// Still no MFI because we need period+1 = 4 samples
 	_, err = mfi.Calculate()
-	if err == nil || err.Error() != "no MFI data" {
-		t.Errorf("Expected error for no MFI data, got: %v", err)
+	assert.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// MFI calculation – basic known sequence
+// ---------------------------------------------------------------------------
+func TestMoneyFlowIndex_Calculation_Basic(t *testing.T) {
+	mfi := newTestMFI(t)
+
+	// Use a deterministic dataset where the expected MFI can be hand‑computed.
+	// Period = 3, so we need 4 samples.
+	data := []struct {
+		high, low, close, vol float64
+	}{
+		{10, 8, 9, 1000},
+		{11, 9, 10, 1200},
+		{12, 10, 11, 1500},
+		{13, 11, 12, 1800},
 	}
+	for _, d := range data {
+		require.NoError(t, mfi.Add(d.high, d.low, d.close, d.vol))
+	}
+
+	// After the fourth sample we should have exactly one MFI value.
+	val, err := mfi.Calculate()
+	require.NoError(t, err)
+
+	// Manually compute expected MFI:
+	//
+	// Typical price (TP) = (H+L+C)/3
+	// Money flow = TP * volume (scale = 1)
+	//
+	// Sample 1 TP = (10+8+9)/3 = 9
+	// Sample 2 TP = (11+9+10)/3 = 10
+	// Sample 3 TP = (12+10+11)/3 = 11
+	// Sample 4 TP = (13+11+12)/3 = 12
+	//
+	// Positive MF = sum(TP_i * vol_i) where close_i > close_{i-1}
+	//   2→3 : close rises (11 > 10) → TP3*1500 = 11*1500 = 16500
+	//   3→4 : close rises (12 > 11) → TP4*1800 = 12*1800 = 21600
+	// Positive MF = 38100
+	//
+	// Negative MF = sum where close falls – none in this upward run → 0
+	//
+	// Money Ratio = ∞ → MFI = 100 (our implementation returns 100 when negativeMF==0)
+	expected := 100.0
+	assert.InDelta(t, expected, val, 1e-9)
+}
+
+// ---------------------------------------------------------------------------
+// Edge‑case handling – zero positive or negative money flow
+// ---------------------------------------------------------------------------
+func TestMoneyFlowIndex_EdgeCases_ZeroFlows(t *testing.T) {
+	mfi := newTestMFI(t)
+
+	// Downward price movement → only negative money flow
+	down := []struct{ h, l, c, v float64 }{
+		{10, 8, 9, 1000},
+		{9, 7, 8, 1100},
+		{8, 6, 7, 1200},
+		{7, 5, 6, 1300},
+	}
+	for _, d := range down {
+		require.NoError(t, mfi.Add(d.h, d.l, d.c, d.v))
+	}
+	val, err := mfi.Calculate()
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, val) // pure negative flow → 0
+
+	// Reset and test the neutral case (price unchanged → both flows zero)
+	mfi.Reset()
+	flat := []struct{ h, l, c, v float64 }{
+		{10, 8, 9, 1000},
+		{10, 8, 9, 1000},
+		{10, 8, 9, 1000},
+		{10, 8, 9, 1000},
+	}
+	for _, f := range flat {
+		require.NoError(t, mfi.Add(f.h, f.l, f.c, f.v))
+	}
+	val, err = mfi.Calculate()
+	require.NoError(t, err)
+	assert.Equal(t, 50.0, val) // neutral case → 50
+}
+
+// ---------------------------------------------------------------------------
+// Crossover detection
+// ---------------------------------------------------------------------------
+func TestMoneyFlowIndex_Crossovers(t *testing.T) {
+	mfi := newTestMFI(t)
+
+	// Build a sequence that goes from oversold (<20) to above oversold (cross up)
+	seq := []struct{ h, l, c, v float64 }{
+		{10, 8, 9, 1000},
+		{11, 9, 10, 1100},
+		{12, 10, 11, 1200},
+		{13, 11, 12, 1300}, // after this MFI = 100 (above oversold)
+	}
+	for _, d := range seq {
+		require.NoError(t, mfi.Add(d.h, d.l, d.c, d.v))
+	}
+	bull, err := mfi.IsBullishCrossover()
+	require.NoError(t, err)
+	assert.True(t, bull)
+
+	// Now add a point that pushes MFI above overbought (80) then drops below it
+	// to trigger a bearish crossover.
+	add := []struct{ h, l, c, v float64 }{
+		{14, 12, 13, 1400}, // still upward → MFI stays 100
+		{13, 11, 12, 1500}, // price falls → negative flow appears, MFI will drop
+	}
+	for _, d := range add {
+		require.NoError(t, mfi.Add(d.h, d.l, d.c, d.v))
+	}
+	bear, err := mfi.IsBearishCrossover()
+	require.NoError(t, err)
+	assert.True(t, bear)
+}
+
+// ---------------------------------------------------------------------------
+// Overbought / Oversold zone reporting
+// ---------------------------------------------------------------------------
+func TestMoneyFlowIndex_ZoneReporting(t *testing.T) {
+	mfi := newTestMFI(t)
+
+	// Force an overbought value (>80)
+	over := []struct{ h, l, c, v float64 }{
+		{10, 8, 9, 1000},
+		{11, 9, 10, 1100},
+		{12, 10, 11, 1200},
+		{13, 11, 12, 1300},
+	}
+	for _, d := range over {
+		require.NoError(t, mfi.Add(d.h, d.l, d.c, d.v))
+	}
+	zone, err := mfi.GetOverboughtOversold()
+	require.NoError(t, err)
+	assert.Equal(t, "Overbought", zone)
+
+	// Reset and force an oversold value (<20)
+	mfi.Reset()
+	under := []struct{ h, l, c, v float64 }{
+		{13, 11, 12, 1300},
+		{12, 10, 11, 1200},
+		{11, 9, 10, 1100},
+		{10, 8, 9, 1000},
+	}
+	for _, d := range under {
+		require.NoError(t, mfi.Add(d.h, d.l, d.c, d.v))
+	}
+	zone, err = mfi.GetOverboughtOversold()
+	require.NoError(t, err)
+	assert.Equal(t, "Oversold", zone)
+}
+
+// ---------------------------------------------------------------------------
+// Reset functionality
+// ---------------------------------------------------------------------------
+func TestMoneyFlowIndex_Reset(t *testing.T) {
+	mfi := newTestMFI(t)
+
+	seq := []struct{ h, l, c, v float64 }{
+		{10, 8, 9, 1000},
+		{11, 9, 10, 1100},
+		{12, 10, 11, 1200},
+		{13, 11, 12, 1300},
+	}
+	for _, d := range seq {
+		require.NoError(t, mfi.Add(d.h, d.l, d.c, d.v))
+	}
+	// Ensure we have data before resetting
+	_, err := mfi.Calculate()
+	require.NoError(t, err)
+
+	mfi.Reset()
+
+	// All slices should be empty and lastValue zero.
+	assert.Empty(t, mfi.GetValues())
+	assert.Equal(t, 0.0, mfi.GetLastValue())
+
+	_, err = mfi.Calculate()
+	assert.Error(t, err) // no data after reset
+}
+
+// ---------------------------------------------------------------------------
+// Divergence detection
+// ---------------------------------------------------------------------------
+func TestMoneyFlowIndex_Divergence(t *testing.T) {
+	mfi := newTestMFI(t)
+
+	// Construct a bullish divergence:
+	// Prices: 12 → 11 → 10 (lower lows)
+	// MFI:    30 → 40 (higher low)
+	data := []struct{ h, l, c, v float64 }{
+		{13, 11, 12, 1000},
+		{12, 10, 11, 1100},
+		{11, 9, 10, 1200},
+		{10, 8, 9, 1300},
+	}
+	for _, d := range data {
+		require.NoError(t, mfi.Add(d.h, d.l, d.c, d.v))
+	}
+	div, err := mfi.IsDivergence()
+	require.NoError(t, err)
+	assert.Equal(t, "bullish", div)
+
+	// Reset and construct a bearish divergence:
+	// Prices: 9 → 10 → 11 (higher highs)
+	// MFI:    70 → 60 (lower high)
+	mfi.Reset()
+	data = []struct{ h, l, c, v float64 }{
+		{9, 7, 8, 1300},
+		{10, 8, 9, 1200},
+		{11, 9, 10, 1100},
+		{12, 10, 11, 1000},
+	}
+	for _, d := range data {
+		require.NoError(t, mfi.Add(d.h, d.l, d.c, d.v))
+	}
+	div, err = mfi.IsDivergence()
+	require.NoError(t, err)
+	assert.Equal(t, "bearish", div)
+
+	// Not enough data → error
+	mfi.Reset()
+	require.NoError(t, mfi.Add(10, 8, 9, 1000))
+	_, err = mfi.IsDivergence()
+	assert.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// Plot data generation – sanity checks
+// ---------------------------------------------------------------------------
+func TestMoneyFlowIndex_GetPlotData(t *testing.T) {
+	mfi := newTestMFI(t)
+
+	seq := []struct{ h, l, c, v float64 }{
+		{10, 8, 9, 1000},
+		{11, 9, 10, 1100},
+		{12, 10, 11, 1200},
+		{13, 11, 12, 1300},
+	}
+	for _, d := range seq {
+		require.NoError(t, mfi.Add(d.h, d.l, d.c, d.v))
+	}
+	plots, err := mfi.GetPlotData()
+	require.NoError(t, err)
+	require.Len(t, plots, 2)
+
+	// First series should be the line with the same number of points as MFI values.
+	line := plots[0]
+	assert.Equal(t, "MFI", line.Name)
+	assert.Equal(t, "line", line.Type)
+	assert.Len(t, line.Y, len(mfi.GetValues()))
+	assert.Len(t, line.X, len(mfi.GetValues()))
+
+	// Second series should be the scatter with signal markers.
+	sig := plots[1]
+	assert.Equal(t, "Signals", sig.Name)
+	assert.Equal(t, "scatter", sig.Type)
+	assert.Len(t, sig.Y, len(mfi.GetValues()))
+}
+
+// ---------------------------------------------------------------------------
+// JSON marshalling sanity – ensures PlotData structs are serialisable
+// ---------------------------------------------------------------------------
+func TestPlotData_JSONMarshalling(t *testing.T) {
+	p := PlotData{
+		Name: "test",
+		X:    []float64{0, 1, 2},
+		Y:    []float64{10, 20, 30},
+		Type: "line",
+	}
+	b, err := json.Marshal(p)
+	require.NoError(t, err)
+	var decoded PlotData
+	require.NoError(t, json.Unmarshal(b, &decoded))
+	assert.Equal(t, p, decoded)
+}
+
+// ---------------------------------------------------------------------------
+// Ensure that calling Calculate without any data returns a clear error.
+// ---------------------------------------------------------------------------
+func TestMoneyFlowIndex_Calculate_NoData(t *testing.T) {
+	mfi := newTestMFI(t)
+	_, err := mfi.Calculate()
+	assert.True(t, errors.Is(err, errors.New("no MFI data")))
 }

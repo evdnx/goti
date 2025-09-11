@@ -15,10 +15,14 @@ const (
 // IndicatorConfig – central place for all tunable parameters
 // -----------------------------------------------------------------------------
 type IndicatorConfig struct {
-	RSIOverbought   float64 // RSI > this → overbought
-	RSIOversold     float64 // RSI < this → oversold
-	MFIOverbought   float64 // Money Flow Index overbought level
-	MFIOversold     float64 // Money Flow Index oversold level
+	RSIOverbought float64 // RSI > this → overbought
+	RSIOversold   float64 // RSI < this → oversold
+	MFIOverbought float64 // Money Flow Index overbought level
+	MFIOversold   float64 // Money Flow Index oversold level
+	// MFIVolumeScale scales raw volume before it is multiplied by the typical price.
+	// The historic default (300 000) is kept for backward compatibility.
+	MFIVolumeScale float64
+
 	AMDOOverbought  float64 // ADMO z‑score overbought threshold
 	AMDOOversold    float64 // ADMO z‑score oversold threshold
 	AMDOScaling     float64 // scaling factor used by some ADMO variants
@@ -37,6 +41,7 @@ func DefaultConfig() IndicatorConfig {
 		RSIOversold:     30,
 		MFIOverbought:   80,
 		MFIOversold:     20,
+		MFIVolumeScale:  300_000, // historic default
 		AMDOOverbought:  DefaultAMDOOverbought,
 		AMDOOversold:    DefaultAMDOOversold,
 		AMDOScaling:     50,

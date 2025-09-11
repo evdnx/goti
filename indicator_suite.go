@@ -217,11 +217,11 @@ func (suite *IndicatorSuite) GetDivergenceSignals() (map[string]string, error) {
 	if rsiDiv {
 		result["RSI"] = rsiSignal
 	}
-	mfiDiv, mfiSignal, err := suite.mfi.IsDivergence()
+	mfiSignal, err := suite.mfi.IsDivergence()
 	if err != nil {
 		return nil, fmt.Errorf("MFI divergence check failed: %w", err)
 	}
-	if mfiDiv {
+	if mfiSignal != "none" {
 		result["MFI"] = mfiSignal
 	}
 	amdoDiv, amdoSignal := suite.amdo.IsDivergence()
@@ -274,8 +274,9 @@ func (suite *IndicatorSuite) GetATSO() *AdaptiveTrendStrengthOscillator {
 // GetPlotData returns combined plot data from all indicators
 func (suite *IndicatorSuite) GetPlotData(startTime, interval int64) []PlotData {
 	var plotData []PlotData
+	mfi, _ := suite.mfi.GetPlotData()
 	plotData = append(plotData, suite.rsi.GetPlotData(startTime, interval)...)
-	plotData = append(plotData, suite.mfi.GetPlotData(startTime, interval)...)
+	plotData = append(plotData, mfi...)
 	plotData = append(plotData, suite.vwao.GetPlotData(startTime, interval)...)
 	plotData = append(plotData, suite.hma.GetPlotData(startTime, interval)...)
 	plotData = append(plotData, suite.amdo.GetPlotData(startTime, interval)...)
