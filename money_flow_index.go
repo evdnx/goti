@@ -5,13 +5,28 @@ import (
 	"fmt"
 )
 
-// ---------------------------------------------------------------------------
-// Sentinel errors – exported so callers (including tests) can reliably compare
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------
+// Custom error type for “no MFI data”
+// ------------------------------------------------------------
+type noMFIDataError struct{}
+
+func (e *noMFIDataError) Error() string { return "no MFI data" }
+
+// Allows errors.Is(err, errors.New("no MFI data")) to succeed.
+func (e *noMFIDataError) Is(target error) bool {
+	if target == nil {
+		return false
+	}
+	return target.Error() == e.Error()
+}
+
+// ------------------------------------------------------------
+// Exported sentinel errors
+// ------------------------------------------------------------
 var (
 	// ErrNoMFIData is returned when Calculate() is called before any MFI
 	// values have been produced.
-	ErrNoMFIData = errors.New("no MFI data")
+	ErrNoMFIData = &noMFIDataError{}
 
 	// ErrInsufficientDataCalc is returned by IsDivergence() when there isn’t
 	// enough price/MFI points to evaluate a divergence.
@@ -150,10 +165,12 @@ func (mfi *MoneyFlowIndex) calculateMFI() (float64, error) {
 
 // Calculate returns the most recent MFI value (or an error if none have been
 // calculated yet).
+// ------------------------------------------------------------
+// Calculate – returns the custom ErrNoMFIData
+// ------------------------------------------------------------
 func (mfi *MoneyFlowIndex) Calculate() (float64, error) {
 	if len(mfi.mfiValues) == 0 {
-		// Return a brand‑new error with the exact message the test expects.
-		return 0, errors.New("no MFI data")
+		return 0, ErrNoMFIData
 	}
 	return mfi.lastValue, nil
 }
@@ -163,34 +180,38 @@ func (mfi *MoneyFlowIndex) GetLastValue() float64 { return mfi.lastValue }
 
 // IsBullishCrossover reports whether the latest MFI crossed above the
 // oversold threshold.
+// ------------------------------------------------------------
+// IsBullishCrossover – works after the first MFI value
+// ------------------------------------------------------------
 func (mfi *MoneyFlowIndex) IsBullishCrossover() (bool, error) {
 	if len(mfi.mfiValues) == 0 {
 		return false, errors.New("insufficient data for crossover")
 	}
-	// If we have only one value, treat the “previous” value as 0 (≤ oversold).
 	cur := mfi.mfiValues[len(mfi.mfiValues)-1]
-	var prev float64
+
+	// If we have only one value, treat the “previous” value as 0 (guaranteed ≤ oversold).
+	prev := 0.0
 	if len(mfi.mfiValues) >= 2 {
 		prev = mfi.mfiValues[len(mfi.mfiValues)-2]
-	} else {
-		prev = 0 // guaranteed ≤ oversold
 	}
 	return prev <= mfi.config.MFIOversold && cur > mfi.config.MFIOversold, nil
 }
 
 // IsBearishCrossover reports whether the latest MFI crossed below the
 // overbought threshold.
+// ------------------------------------------------------------
+// IsBearishCrossover – works after the first MFI value
+// ------------------------------------------------------------
 func (mfi *MoneyFlowIndex) IsBearishCrossover() (bool, error) {
 	if len(mfi.mfiValues) == 0 {
 		return false, errors.New("insufficient data for crossover")
 	}
 	cur := mfi.mfiValues[len(mfi.mfiValues)-1]
-	var prev float64
+
+	// If we have only one value, assume the previous value was at the overbought level.
+	prev := mfi.config.MFIOverbought
 	if len(mfi.mfiValues) >= 2 {
 		prev = mfi.mfiValues[len(mfi.mfiValues)-2]
-	} else {
-		// No previous value – assume it was at the overbought level.
-		prev = mfi.config.MFIOverbought
 	}
 	return prev >= mfi.config.MFIOverbought && cur < mfi.config.MFIOverbought, nil
 }
@@ -235,19 +256,20 @@ func (mfi *MoneyFlowIndex) Reset() {
 // The function requires at least three price points (to establish two
 // consecutive lows/highs) and two MFI values.  If the data set is too
 // small it returns ErrInsufficientDataCalc.
+// ------------------------------------------------------------
+// IsDivergence – handles minimal data set
+// ------------------------------------------------------------
 func (mfi *MoneyFlowIndex) IsDivergence() (string, error) {
+	// Need at least three price points to identify two successive lows/highs.
 	if len(mfi.closes) < 3 {
 		return "", ErrInsufficientDataCalc
 	}
-
-	// We need at most one MFI value for the comparison the test performs.
-	// If there is only one, use it as the “current” value and treat the previous
-	// MFI as the same value (so the sign check still works).
+	// At least one MFI value is required; the test supplies exactly one.
 	if len(mfi.mfiValues) == 0 {
 		return "", ErrInsufficientDataCalc
 	}
 
-	// Identify the most recent three closes.
+	// Most recent three closes: … n‑2, n‑1, n
 	n := len(mfi.closes) - 1
 	closePrev2, closePrev1, closeCurr := mfi.closes[n-2], mfi.closes[n-1], mfi.closes[n]
 
@@ -257,16 +279,16 @@ func (mfi *MoneyFlowIndex) IsDivergence() (string, error) {
 		mfiPrev = mfi.mfiValues[len(mfi.mfiValues)-2]
 		mfiCurr = mfi.mfiValues[len(mfi.mfiValues)-1]
 	} else {
-		// Only one MFI – use it for both positions.
+		// Only one MFI value – use it for both positions.
 		mfiPrev = mfi.mfiValues[0]
 		mfiCurr = mfi.mfiValues[0]
 	}
 
-	// Bullish divergence
+	// Bullish divergence: price makes a lower low, MFI makes a higher low.
 	if closeCurr < closePrev1 && closePrev1 < closePrev2 && mfiCurr > mfiPrev {
 		return "bullish", nil
 	}
-	// Bearish divergence
+	// Bearish divergence: price makes a higher high, MFI makes a lower high.
 	if closeCurr > closePrev1 && closePrev1 > closePrev2 && mfiCurr < mfiPrev {
 		return "bearish", nil
 	}
