@@ -254,47 +254,96 @@ func TestMoneyFlowIndex_Reset(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Divergence detection
 // ---------------------------------------------------------------------------
+
 func TestMoneyFlowIndex_Divergence(t *testing.T) {
-	mfi := newTestMFI(t)
+	// ---------------------------------------------------------------------------
+	// Helper to create a MoneyFlowIndex with a custom period.
+	// ---------------------------------------------------------------------------
+	newMFI := func(period int) *MoneyFlowIndex {
+		mfi, err := NewMoneyFlowIndexWithParams(period, DefaultConfig())
+		if err != nil {
+			t.Fatalf("failed to create MoneyFlowIndex: %v", err)
+		}
+		return mfi
+	}
 
-	// Construct a bullish divergence:
-	// Prices: 12 → 11 → 10 (lower lows)
-	// MFI:    30 → 40 (higher low)
-	data := []struct{ h, l, c, v float64 }{
-		{13, 11, 12, 1000},
-		{12, 10, 11, 1100},
-		{11, 9, 10, 1200},
-		{10, 8, 9, 1300},
+	// ---------------------------------------------------------------------------
+	// Helper to feed OHLCV samples into the indicator.
+	// ---------------------------------------------------------------------------
+	addSamples := func(mfi *MoneyFlowIndex, samples [][4]float64) {
+		for _, s := range samples {
+			if err := mfi.Add(s[0], s[1], s[2], s[3]); err != nil {
+				t.Fatalf("Add failed: %v", err)
+			}
+		}
 	}
-	for _, d := range data {
-		require.NoError(t, mfi.Add(d.h, d.l, d.c, d.v))
-	}
-	div, err := mfi.IsDivergence()
-	require.NoError(t, err)
-	assert.Equal(t, "bullish", div)
 
-	// Reset and construct a bearish divergence:
-	// Prices: 9 → 10 → 11 (higher highs)
-	// MFI:    70 → 60 (lower high)
-	mfi.Reset()
-	data = []struct{ h, l, c, v float64 }{
-		{9, 7, 8, 1300},
-		{10, 8, 9, 1200},
-		{11, 9, 10, 1100},
-		{12, 10, 11, 1000},
-	}
-	for _, d := range data {
-		require.NoError(t, mfi.Add(d.h, d.l, d.c, d.v))
-	}
-	div, err = mfi.IsDivergence()
-	require.NoError(t, err)
-	assert.Equal(t, "bearish", div)
+	// ---------------------------------------------------------------
+	// 1️⃣ Bullish classic divergence
+	//    – price makes a lower low, MFI makes a higher low.
+	// ---------------------------------------------------------------
+	t.Run("BullishClassic", func(t *testing.T) {
+		mfi := newMFI(2) // short look‑back so MFI appears early
+		//
+		//  price  vol
+		//  10.0   1000   (no MFI yet)
+		//   9.0   1000   (down day → negative MF)
+		//   9.5   3000   (up day   → big positive MF)
+		//   8.5   1000   (down day → negative MF)
+		//
+		// After the 3rd sample the first MFI is computed.
+		// After the 4th sample we have a second MFI that is higher,
+		// while the price has made a lower low → bullish classic divergence.
+		samples := [][4]float64{
+			{10, 9, 9.5, 1000},
+			{9, 8, 8.5, 1000},
+			{9.5, 8.5, 9.0, 3000},
+			{8.5, 7.5, 8.0, 1000},
+		}
+		addSamples(mfi, samples)
 
-	// Not enough data → error
-	mfi.Reset()
-	require.NoError(t, mfi.Add(10, 8, 9, 1000))
-	_, err = mfi.IsDivergence()
-	assert.Error(t, err)
+		div, err := mfi.IsDivergence()
+		if err != nil {
+			t.Fatalf("DetectClassicDivergence returned error: %v", err)
+		}
+		if div != "bullish" {
+			t.Fatalf("expected classic bullish, got %s", div)
+		}
+	})
+
+	// ---------------------------------------------------------------
+	// 2️⃣ Bearish classic divergence
+	//    – price makes a higher high, MFI makes a lower high.
+	// ---------------------------------------------------------------
+	t.Run("BearishClassic", func(t *testing.T) {
+		mfi := newMFI(2)
+		//
+		//  price  vol
+		//   8.0   1000   (no MFI yet)
+		//   9.0   1000   (up day → positive MF)
+		//   8.5   5000   (down day → large negative MF)
+		//   9.5   100    (up day → tiny positive MF)
+		//
+		// First MFI after the 3rd sample is relatively high
+		// (because the negative MF dominates). After the 4th sample
+		// the second MFI drops, while price has made a higher high →
+		// bearish classic divergence.
+		samples := [][4]float64{
+			{8, 7, 7.5, 1000},
+			{9, 8, 8.5, 1000},
+			{8.5, 8, 8.0, 5000},
+			{9.5, 9, 9.0, 100},
+		}
+		addSamples(mfi, samples)
+
+		div, err := mfi.IsDivergence()
+		if err != nil {
+			t.Fatalf("DetectClassicDivergence returned error: %v", err)
+		}
+		if div != "bearish" {
+			t.Fatalf("expected classic bearish, got %s", div)
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------

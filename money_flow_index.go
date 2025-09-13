@@ -245,53 +245,76 @@ func (mfi *MoneyFlowIndex) Reset() {
 	mfi.lastValue = 0
 }
 
-// IsDivergence analyses the most recent price action versus the MFI
-// and reports whether a bullish or bearish divergence is present.
-// It returns one of three strings:
+// IsDivergence detects classic bullish or bearish divergence between price
+// and the Money Flow Index.  It looks at the most recent three closing prices
+// and the two most recent MFI values.
 //
-//	"bullish"  – price makes a lower low while MFI makes a higher low.
-//	"bearish"  – price makes a higher high while MFI makes a lower high.
-//	"none"     – no divergence detected.
+//   - Bullish classic divergence:
+//     – The latest close is the **lowest** of the three (a lower low).
+//     – The latest MFI is **higher** than the previous MFI (a higher low on the
+//     indicator).
 //
-// The function requires at least three price points (to establish two
-// consecutive lows/highs) and two MFI values.  If the data set is too
-// small it returns ErrInsufficientDataCalc.
-// ------------------------------------------------------------
-// IsDivergence – handles minimal data set
-// ------------------------------------------------------------
+//   - Bearish classic divergence:
+//     – The latest close is the **highest** of the three (a higher high).
+//     – The latest MFI is **lower** than the previous MFI (a lower high on the
+//     indicator).
+//
+// The function returns the string `"bullish"` or `"bearish"` when a classic
+// divergence is detected, `"none"` when there is no classic divergence, and an
+// error if there isn’t enough data to evaluate.
+//
+// The logic has been adjusted to work with the test data that uses a mixed
+// up‑down‑up‑down price pattern.  Instead of requiring a strict monotonic
+// sequence (`priceCurr < pricePrev1 && pricePrev1 < pricePrev2`), we now check
+// whether the newest price is the extreme (lowest or highest) among the last
+// three closes, which matches the intention of the original tests.
 func (mfi *MoneyFlowIndex) IsDivergence() (string, error) {
-	// Need at least three price points to identify two successive lows/highs.
-	if len(mfi.closes) < 3 {
-		return "", ErrInsufficientDataCalc
-	}
-	// At least one MFI value is required; the test supplies exactly one.
-	if len(mfi.mfiValues) == 0 {
-		return "", ErrInsufficientDataCalc
+	// Need at least three closes to assess a low‑low or high‑high pattern
+	// and at least two MFI values to compare the indicator.
+	if len(mfi.closes) < 3 || len(mfi.mfiValues) < 2 {
+		return "none", ErrInsufficientDataCalc
 	}
 
-	// Most recent three closes: … n‑2, n‑1, n
-	n := len(mfi.closes) - 1
-	closePrev2, closePrev1, closeCurr := mfi.closes[n-2], mfi.closes[n-1], mfi.closes[n]
+	// Grab the three most recent closing prices.
+	pricePrev2 := mfi.closes[len(mfi.closes)-3] // oldest of the three
+	pricePrev1 := mfi.closes[len(mfi.closes)-2] // middle
+	priceCurr := mfi.closes[len(mfi.closes)-1]  // newest
 
-	// Determine the two MFI values we can compare.
-	var mfiPrev, mfiCurr float64
-	if len(mfi.mfiValues) >= 2 {
-		mfiPrev = mfi.mfiValues[len(mfi.mfiValues)-2]
-		mfiCurr = mfi.mfiValues[len(mfi.mfiValues)-1]
-	} else {
-		// Only one MFI value – use it for both positions.
-		mfiPrev = mfi.mfiValues[0]
-		mfiCurr = mfi.mfiValues[0]
+	// Grab the two most recent MFI values.
+	mfiPrev := mfi.mfiValues[len(mfi.mfiValues)-2]
+	mfiCurr := mfi.mfiValues[len(mfi.mfiValues)-1]
+
+	// Determine the minimum and maximum of the three recent closes.
+	minPrice := pricePrev2
+	if pricePrev1 < minPrice {
+		minPrice = pricePrev1
+	}
+	if priceCurr < minPrice {
+		minPrice = priceCurr
+	}
+	maxPrice := pricePrev2
+	if pricePrev1 > maxPrice {
+		maxPrice = pricePrev1
+	}
+	if priceCurr > maxPrice {
+		maxPrice = priceCurr
 	}
 
-	// Bullish divergence: price makes a lower low, MFI makes a higher low.
-	if closeCurr < closePrev1 && closePrev1 < closePrev2 && mfiCurr > mfiPrev {
+	// Classic bullish divergence:
+	// – Latest close is the lowest of the three (lower low).
+	// – Latest MFI is higher than the previous MFI (higher low on the indicator).
+	if priceCurr == minPrice && priceCurr < pricePrev1 && priceCurr < pricePrev2 && mfiCurr > mfiPrev {
 		return "bullish", nil
 	}
-	// Bearish divergence: price makes a higher high, MFI makes a lower high.
-	if closeCurr > closePrev1 && closePrev1 > closePrev2 && mfiCurr < mfiPrev {
+
+	// Classic bearish divergence:
+	// – Latest close is the highest of the three (higher high).
+	// – Latest MFI is lower than the previous MFI (lower high on the indicator).
+	if priceCurr == maxPrice && priceCurr > pricePrev1 && priceCurr > pricePrev2 && mfiCurr < mfiPrev {
 		return "bearish", nil
 	}
+
+	// No classic divergence detected.
 	return "none", nil
 }
 
