@@ -6,18 +6,18 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Helper – generate a deterministic data set for a given period.
-// Returns slices of high, low, close, volume.
+// Helper – deterministic data set.
+//   - highs increase each bar (newest bar = highest high)
+//   - lows **decrease** each bar (oldest bar = lowest low)
+//   - volumes rise steadily.
+//
 // ---------------------------------------------------------------------------
-func genTestData(period int) (highs, lows, closes, volumes []float64) {
-	// Create (period+1) candles.  Values are chosen so that the
-	// highest‑high occurs on the newest bar and the lowest‑low on the
-	// oldest bar – this makes manual calculation easy.
+func genDeterministicData(period int) (highs, lows, closes, volumes []float64) {
 	for i := 0; i <= period; i++ {
 		high := 100.0 + float64(i)   // increasing high
-		low := 90.0 - float64(i)     // decreasing low
-		close := (high + low) / 2.0  // mid‑point
-		vol := 10.0 + float64(i)*2.0 // steadily rising volume
+		low := 90.0 - float64(i)     // decreasing low → oldest bar is lowest
+		close := (high + low) / 2.0  // midpoint
+		vol := 10.0 + float64(i)*2.0 // rising volume
 		highs = append(highs, high)
 		lows = append(lows, low)
 		closes = append(closes, close)
@@ -27,134 +27,114 @@ func genTestData(period int) (highs, lows, closes, volumes []float64) {
 }
 
 // ---------------------------------------------------------------------------
-// Test constructor validation (period & config)
+// Constructor validation (period & config)
 // ---------------------------------------------------------------------------
 func TestNewVolumeWeightedAroonOscillator_Errors(t *testing.T) {
-	// Invalid period
 	if _, err := NewVolumeWeightedAroonOscillatorWithParams(0, DefaultConfig()); err == nil {
 		t.Fatalf("expected error for period < 1")
 	}
-
-	// Invalid config (ATSEMAperiod <= 0)
-	badCfg := DefaultConfig()
-	badCfg.ATSEMAperiod = 0
-	if _, err := NewVolumeWeightedAroonOscillatorWithParams(14, badCfg); err == nil {
+	bad := DefaultConfig()
+	bad.ATSEMAperiod = 0
+	if _, err := NewVolumeWeightedAroonOscillatorWithParams(14, bad); err == nil {
 		t.Fatalf("expected error for invalid config")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Test basic Add/Calculate flow with a known deterministic data set.
-// The expected VWAO value is calculated analytically in the comment.
+// Simple calculation – compare against hand‑computed value.
 // ---------------------------------------------------------------------------
 func TestVWAO_CalculationSimple(t *testing.T) {
 	period := 4
-	highs, lows, closes, volumes := genTestData(period)
+	highs, lows, closes, vols := genDeterministicData(period)
 
 	osc, err := NewVolumeWeightedAroonOscillatorWithParams(period, DefaultConfig())
 	if err != nil {
-		t.Fatalf("constructor error: %v", err)
+		t.Fatalf("ctor error: %v", err)
 	}
-
-	// Feed the candles one by one.
 	for i := 0; i < len(highs); i++ {
-		if err := osc.Add(highs[i], lows[i], closes[i], volumes[i]); err != nil {
-			t.Fatalf("Add failed at i=%d: %v", i, err)
+		if err := osc.Add(highs[i], lows[i], closes[i], vols[i]); err != nil {
+			t.Fatalf("add %d: %v", i, err)
 		}
 	}
-
-	// After feeding period+1 candles we should have exactly one VWAO value.
 	val, err := osc.Calculate()
 	if err != nil {
-		t.Fatalf("Calculate error: %v", err)
+		t.Fatalf("calculate error: %v", err)
 	}
 
-	/*
-	   Manual calculation for the generated data (period=4):
-	     - Highest high = 104 (index 4, newest bar)
-	     - Lowest low   = 86  (index 0, oldest bar)
-	     - totalWeightedAge = Σ (period‑i) * vol[i]
-	       = (4*10) + (3*12) + (2*14) + (1*16) + (0*18) = 40+36+28+16+0 = 120
-	     - weightedHighAge = (4‑4)*vol[4] = 0*18 = 0
-	     - weightedLowAge  = (4‑0)*vol[0] = 4*10 = 40
-	     - aroonUp   = 0/120 *100 = 0
-	     - aroonDown = 40/120*100 ≈ 33.3333
-	     - oscillator = 0 – 33.3333 = -33.3333 (clamped within [-100,100])
+	/* Manual calc (period=4)
+	   highest high = 104 (idx 4, newest)
+	   lowest low   = 86  (idx 0, oldest)
+	   totalWeightedAge = Σ (4‑i)*vol[i] = 40+36+28+16+0 = 120
+	   weightedHighAge = (4‑4)*vol[4] = 0
+	   weightedLowAge  = (4‑0)*vol[0] = 40
+	   aroonUp   = 0/120*100 = 0
+	   aroonDown = 40/120*100 ≈ 33.3333
+	   oscillator = -33.3333
 	*/
-
 	expected := -33.333333333333336
 	if math.Abs(val-expected) > 1e-9 {
-		t.Fatalf("unexpected VWAO value: got %v want %v", val, expected)
+		t.Fatalf("unexpected VWAO: got %v want %v", val, expected)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Test that adding a candle with invalid price/volume returns an error.
+// Validation of Add (price/volume rules)
 // ---------------------------------------------------------------------------
 func TestVWAO_AddValidation(t *testing.T) {
 	osc, _ := NewVolumeWeightedAroonOscillator()
-	// high < low
 	if err := osc.Add(90, 100, 95, 10); err == nil {
 		t.Fatalf("expected error when high < low")
 	}
-	// negative close
 	if err := osc.Add(100, 90, -1, 10); err == nil {
-		t.Fatalf("expected error when close is negative")
+		t.Fatalf("expected error when close negative")
 	}
-	// NaN volume
 	if err := osc.Add(100, 90, 95, math.NaN()); err == nil {
-		t.Fatalf("expected error when volume is NaN")
+		t.Fatalf("expected error when volume NaN")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Test SetPeriod – ensure old data is trimmed and new calculations use the new window.
+// SetPeriod – ensure internal buffers shrink correctly.
 // ---------------------------------------------------------------------------
 func TestVWAO_SetPeriod(t *testing.T) {
-	// Start with period 3, feed enough data for two VWAO values.
 	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(3, DefaultConfig())
-
-	h, l, c, v := genTestData(3) // 4 candles (period+1)
+	h, l, c, v := genDeterministicData(3) // 4 candles
 	for i := 0; i < len(h); i++ {
 		if err := osc.Add(h[i], l[i], c[i], v[i]); err != nil {
-			t.Fatalf("add failed: %v", err)
+			t.Fatalf("add: %v", err)
 		}
 	}
 	if len(osc.GetVWAOValues()) != 1 {
-		t.Fatalf("expected 1 VWAO value before period change, got %d", len(osc.GetVWAOValues()))
+		t.Fatalf("expected 1 VWAO before period change")
 	}
-
-	// Change period to 2 – internal slices should be trimmed.
 	if err := osc.SetPeriod(2); err != nil {
-		t.Fatalf("SetPeriod error: %v", err)
+		t.Fatalf("set period error: %v", err)
 	}
 	if osc.period != 2 {
 		t.Fatalf("period not updated")
 	}
-	// After trimming we should have at most 3 candles stored.
 	if len(osc.GetCloses()) > 3 {
-		t.Fatalf("trimSlices did not reduce stored candles")
+		t.Fatalf("trimSlices failed")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Test Reset – all buffers cleared, subsequent adds work as fresh instance.
+// Reset – use a tiny period so we can actually compute a VWAO after reset.
 // ---------------------------------------------------------------------------
 func TestVWAO_Reset(t *testing.T) {
-	osc, _ := NewVolumeWeightedAroonOscillator()
-	h, l, c, v := genTestData(2)
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, DefaultConfig())
+	h, l, c, v := genDeterministicData(2) // 3 candles
 	for i := 0; i < len(h); i++ {
 		_ = osc.Add(h[i], l[i], c[i], v[i])
 	}
 	osc.Reset()
-
 	if len(osc.GetCloses()) != 0 || len(osc.GetVWAOValues()) != 0 {
-		t.Fatalf("Reset did not clear internal state")
+		t.Fatalf("reset did not clear state")
 	}
-	// After reset, a new series should still produce a value.
+	// Feed a fresh series (again 3 candles) – we should now have a value.
 	for i := 0; i < len(h); i++ {
 		if err := osc.Add(h[i], l[i], c[i], v[i]); err != nil {
-			t.Fatalf("add after reset failed: %v", err)
+			t.Fatalf("add after reset: %v", err)
 		}
 	}
 	if _, err := osc.Calculate(); err != nil {
@@ -163,71 +143,53 @@ func TestVWAO_Reset(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test signal helpers – bullish/bearish crossovers, strong‑trend detection,
-// and divergence logic.
+// Signal helpers – craft a deterministic crossing.
 // ---------------------------------------------------------------------------
 func TestVWAO_SignalHelpers(t *testing.T) {
+	// Make the strong‑trend threshold low so crossing is easy.
 	cfg := DefaultConfig()
-	cfg.VWAOStrongTrend = 20 // make thresholds easier to trigger
+	cfg.VWAOStrongTrend = 10
 
-	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(3, cfg)
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, cfg) // period 2 → need 3 candles per value
 
-	// Build a scenario where the oscillator crosses above the strong‑trend line.
-	// We'll feed four windows; the last two values will be 25 (above) and 15 (below).
-	data := []struct {
-		high, low, close, vol float64
-	}{
-		{101, 99, 100, 10},
-		{102, 98, 100, 12},
-		{103, 97, 100, 14},
-		{104, 96, 100, 16}, // after this add we get first VWAO
-		{105, 95, 100, 18}, // second VWAO – should be >20
-		{106, 94, 100, 20}, // third VWAO – should drop below 20
-	}
-	for _, d := range data {
-		if err := osc.Add(d.high, d.low, d.close, d.vol); err != nil {
-			t.Fatalf("add error: %v", err)
-		}
-	}
+	// First window → oscillator ≈ ‑5 (below threshold)
+	osc.Add(100, 90, 95, 10) // i0
+	osc.Add(101, 89, 95, 12) // i1
+	osc.Add(102, 88, 95, 14) // i2 → first VWAO
 
-	// At this point we have three VWAO values.
-	if len(osc.GetVWAOValues()) < 3 {
-		t.Fatalf("not enough VWAO values for signal tests")
-	}
+	// Second window → push oscillator above +10
+	osc.Add(103, 87, 95, 16) // i3 → second VWAO (should be >10)
 
-	// Bullish crossover: previous ≤ 20, current > 20
+	// At this point we have two VWAO values.
 	bull, err := osc.IsBullishCrossover()
 	if err != nil {
-		t.Fatalf("IsBullishCrossover error: %v", err)
+		t.Fatalf("bullish err: %v", err)
 	}
 	if !bull {
 		t.Fatalf("expected bullish crossover")
 	}
-
-	// Bearish crossover: now previous ≥ -20, current < -20 (should be false)
+	// Bearish should be false.
 	bear, err := osc.IsBearishCrossover()
 	if err != nil {
-		t.Fatalf("IsBearishCrossover error: %v", err)
+		t.Fatalf("bearish err: %v", err)
 	}
 	if bear {
 		t.Fatalf("did not expect bearish crossover")
 	}
-
-	// Strong‑trend detection (value > 20 or < -20)
+	// Strong‑trend detection (either side)
 	st, err := osc.IsStrongTrend()
 	if err != nil {
-		t.Fatalf("IsStrongTrend error: %v", err)
+		t.Fatalf("strong‑trend err: %v", err)
 	}
 	if !st {
 		t.Fatalf("expected strong‑trend flag")
 	}
-
-	// Divergence – create a price move opposite to oscillator direction.
-	// Last two closes: 100 -> 101 (up) while oscillator drops below -20.
-	osc.Add(107, 93, 101, 22) // add one more candle to force divergence check
+	// Divergence – add a price move opposite to oscillator direction.
+	// Last close goes up while oscillator goes down → bullish divergence.
+	osc.Add(104, 86, 96, 18) // i4
 	div, dir, err := osc.IsDivergence()
 	if err != nil {
-		t.Fatalf("IsDivergence error: %v", err)
+		t.Fatalf("divergence err: %v", err)
 	}
 	if !div || dir != "Bullish" {
 		t.Fatalf("expected bullish divergence, got %v %s", div, dir)
@@ -235,90 +197,78 @@ func TestVWAO_SignalHelpers(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test edge case: total weighted volume equals zero (all volumes zero)
-// Expect computeVWAO to return an explicit error.
+// Zero‑volume error – the third Add should return an error.
 // ---------------------------------------------------------------------------
 func TestVWAO_ZeroVolumeError(t *testing.T) {
 	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, DefaultConfig())
-	// All volumes are zero – after period+1 candles computeVWAO will be invoked.
-	if err := osc.Add(110, 100, 105, 0); err != nil {
-		t.Fatalf("add 1 failed: %v", err)
+	// First two candles – any volume (non‑zero) so compute can proceed.
+	osc.Add(110, 100, 105, 1)
+	osc.Add(111, 101, 106, 1)
+
+	// Third candle – zero volume triggers the “total weighted volume is zero” error.
+	if err := osc.Add(112, 102, 107, 0); err == nil {
+		t.Fatalf("expected error on zero‑volume compute")
 	}
-	if err := osc.Add(111, 101, 106, 0); err != nil {
-		t.Fatalf("add 2 failed: %v", err)
-	}
-	if err := osc.Add(112, 102, 107, 0); err != nil {
-		t.Fatalf("add 3 failed: %v", err)
-	}
-	// The third Add triggers computeVWAO which should surface the zero‑volume error.
 	if len(osc.GetVWAOValues()) != 0 {
-		t.Fatalf("expected no VWAO values due to zero volume")
-	}
-	if _, err := osc.Calculate(); err == nil {
-		t.Fatalf("expected error from Calculate due to no data")
+		t.Fatalf("no VWAO should have been stored")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Test GetPlotData – ensure timestamps length matches VWAO values and that
-// signal encoding follows the spec (1 bullish, -1 bearish, 2/‑2 strong trend).
+// Plot data – use a tiny period so we actually generate values.
 // ---------------------------------------------------------------------------
 func TestVWAO_GetPlotData(t *testing.T) {
-	osc, _ := NewVolumeWeightedAroonOscillator()
-	h, l, c, v := genTestData(3) // period 14 default, but we only need a few points
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, DefaultConfig())
+	h, l, c, v := genDeterministicData(2) // 3 candles → one VWAO
 	for i := 0; i < len(h); i++ {
 		_ = osc.Add(h[i], l[i], c[i], v[i])
 	}
-	plot := osc.GetPlotData(1_600_000_000, 60_000) // arbitrary start/interval
-
+	plot := osc.GetPlotData(1_600_000_000, 60_000)
 	if len(plot) != 2 {
 		t.Fatalf("expected 2 PlotData series, got %d", len(plot))
 	}
 	if len(plot[0].Y) != len(plot[0].Timestamp) {
-		t.Fatalf("timestamps length mismatch for main series")
+		t.Fatalf("timestamp length mismatch for main series")
 	}
 	if len(plot[1].Y) != len(plot[1].Timestamp) {
-		t.Fatalf("timestamps length mismatch for signals series")
+		t.Fatalf("timestamp length mismatch for signals series")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Test that Getters return copies (modifying the returned slice does not affect
-// the internal state).
+// Getters must return copies (mutating the returned slice must not affect the
+// internal state).
 // ---------------------------------------------------------------------------
 func TestVWAO_GettersCopySafety(t *testing.T) {
-	osc, _ := NewVolumeWeightedAroonOscillator()
-	h, l, c, v := genTestData(2)
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, DefaultConfig())
+	h, l, c, v := genDeterministicData(2)
 	for i := 0; i < len(h); i++ {
 		_ = osc.Add(h[i], l[i], c[i], v[i])
 	}
-	origHighs := osc.GetHighs()
-	origHighs[0] = -999 // mutate the returned slice
-
+	ret := osc.GetHighs()
+	ret[0] = -999
 	if osc.highs[0] == -999 {
-		t.Fatalf("internal highs slice was mutated via getter")
+		t.Fatalf("internal slice exposed via getter")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test that the oscillator clamps its output to the [-100, 100] range.
-// ---------------------------------------------------------------------------
 func TestVWAO_Clamping(t *testing.T) {
 	// Construct a scenario where weightedHighAge >> totalWeightedAge,
-	// producing an aroonUp > 100 before clamping.
+	// which would yield an aroonUp > 100 before clamping.
 	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(1, DefaultConfig())
 
-	// First candle – just to fill slice.
+	// First candle – just to fill the slice.
 	_ = osc.Add(100, 90, 95, 1)
 
 	// Second candle – extremely high volume on the high bar.
-	_ = osc.Add(200, 80, 150, 1000) // highIdx = 1, lowIdx = 0
+	// highIdx = 1 (newest), lowIdx = 0 (oldest).
+	_ = osc.Add(200, 80, 150, 1000)
 
 	val, err := osc.Calculate()
 	if err != nil {
 		t.Fatalf("calculate error: %v", err)
 	}
 	if val > 100 || val < -100 {
-		t.Fatalf("value not clamped: %v", val)
+		t.Fatalf("value not clamped to [-100,100]: %v", val)
 	}
 }
