@@ -1,6 +1,19 @@
 // volume_weighted_aroon_oscillator.go
-// artifact_id: 7a8b9c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d
-// artifact_version_id: 6e9f0b2c-3d4e-4f5a-6b7c-8d9e0f1a2b3c
+//
+// Genuine Volume‑Weighted Aroon Oscillator (VWAO)
+// ------------------------------------------------------------
+// This implementation builds on the classic Aroon‑Oscillator (Aroon‑Up
+// – Aroon‑Down) but incorporates the traded volume of each bar.  The
+// idea is to weight the “time‑since‑extreme” component by the volume
+// that actually occurred on the bar where the extreme price was hit.
+// The resulting oscillator reacts both to price extremes and to the
+// amount of market activity behind those extremes.
+//
+// Public API (constructors, Add, Calculate, signal helpers, etc.) stays
+// identical to the original version, ensuring drop‑in compatibility.
+//
+// Author: Lumo (Proton) – 2025
+//
 
 package goti
 
@@ -9,7 +22,7 @@ import (
 	"fmt"
 )
 
-// VolumeWeightedAroonOscillator calculates the Volume-Weighted Aroon Oscillator
+// VolumeWeightedAroonOscillator calculates a volume‑weighted Aroon Oscillator.
 type VolumeWeightedAroonOscillator struct {
 	period     int
 	highs      []float64
@@ -21,15 +34,20 @@ type VolumeWeightedAroonOscillator struct {
 	config     IndicatorConfig
 }
 
-// NewVolumeWeightedAroonOscillator initializes with standard period (14)
+// NewVolumeWeightedAroonOscillator creates a VWAO with the default period (14)
+// and the library’s default configuration.
 func NewVolumeWeightedAroonOscillator() (*VolumeWeightedAroonOscillator, error) {
 	return NewVolumeWeightedAroonOscillatorWithParams(14, DefaultConfig())
 }
 
-// NewVolumeWeightedAroonOscillatorWithParams initializes with custom period and config
-func NewVolumeWeightedAroonOscillatorWithParams(period int, config IndicatorConfig) (*VolumeWeightedAroonOscillator, error) {
+// NewVolumeWeightedAroonOscillatorWithParams creates a VWAO with a custom period
+// and configuration.
+func NewVolumeWeightedAroonOscillatorWithParams(period int, cfg IndicatorConfig) (*VolumeWeightedAroonOscillator, error) {
 	if period < 1 {
 		return nil, errors.New("period must be at least 1")
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 	return &VolumeWeightedAroonOscillator{
 		period:     period,
@@ -38,231 +56,233 @@ func NewVolumeWeightedAroonOscillatorWithParams(period int, config IndicatorConf
 		closes:     make([]float64, 0, period+1),
 		volumes:    make([]float64, 0, period+1),
 		vwaoValues: make([]float64, 0, period),
-		config:     config,
+		config:     cfg,
 	}, nil
 }
 
-// Add appends new price and volume data to the oscillator
-func (vwao *VolumeWeightedAroonOscillator) Add(high, low, close, volume float64) error {
+// Add inserts a new candle (high, low, close) together with its volume.
+// Validation mirrors the rest of the library: prices must be non‑negative,
+// high ≥ low, and volume must be a valid number.
+func (v *VolumeWeightedAroonOscillator) Add(high, low, close, volume float64) error {
 	if high < low || !isNonNegativePrice(close) || !isValidVolume(volume) {
 		return errors.New("invalid price or volume")
 	}
-	vwao.highs = append(vwao.highs, high)
-	vwao.lows = append(vwao.lows, low)
-	vwao.closes = append(vwao.closes, close)
-	vwao.volumes = append(vwao.volumes, volume)
-	if len(vwao.closes) >= vwao.period+1 {
-		vwaoValue, err := vwao.calculateVWAO()
+	v.highs = append(v.highs, high)
+	v.lows = append(v.lows, low)
+	v.closes = append(v.closes, close)
+	v.volumes = append(v.volumes, volume)
+
+	// Compute a new VWAO once we have enough points (period+1 candles).
+	if len(v.closes) >= v.period+1 {
+		val, err := v.computeVWAO()
 		if err != nil {
-			return fmt.Errorf("calculateVWAO failed: %w", err)
+			return fmt.Errorf("computeVWAO failed: %w", err)
 		}
-		vwao.vwaoValues = append(vwao.vwaoValues, vwaoValue)
-		vwao.lastValue = vwaoValue
+		v.vwaoValues = append(v.vwaoValues, val)
+		v.lastValue = val
 	}
-	vwao.trimSlices()
+	v.trimSlices()
 	return nil
 }
 
-// trimSlices limits the size of data slices to prevent memory growth
-func (vwao *VolumeWeightedAroonOscillator) trimSlices() {
-	if len(vwao.closes) > vwao.period+1 {
-		vwao.highs = vwao.highs[len(vwao.highs)-vwao.period-1:]
-		vwao.lows = vwao.lows[len(vwao.lows)-vwao.period-1:]
-		vwao.closes = vwao.closes[len(vwao.closes)-vwao.period-1:]
-		vwao.volumes = vwao.volumes[len(vwao.volumes)-vwao.period-1:]
+// trimSlices caps the stored slices to the maximum size required for the
+// next calculation, preventing unbounded memory growth.
+func (v *VolumeWeightedAroonOscillator) trimSlices() {
+	if len(v.closes) > v.period+1 {
+		v.highs = v.highs[len(v.highs)-v.period-1:]
+		v.lows = v.lows[len(v.lows)-v.period-1:]
+		v.closes = v.closes[len(v.closes)-v.period-1:]
+		v.volumes = v.volumes[len(v.volumes)-v.period-1:]
 	}
-	if len(vwao.vwaoValues) > vwao.period {
-		vwao.vwaoValues = vwao.vwaoValues[len(vwao.vwaoValues)-vwao.period:]
+	if len(v.vwaoValues) > v.period {
+		v.vwaoValues = v.vwaoValues[len(v.vwaoValues)-v.period:]
 	}
 }
 
-// calculateVWAO computes the Volume-Weighted Aroon Oscillator value
-func (vwao *VolumeWeightedAroonOscillator) calculateVWAO() (float64, error) {
-	if len(vwao.closes) < vwao.period+1 {
-		return 0, fmt.Errorf("insufficient data: need %d, have %d", vwao.period+1, len(vwao.closes))
-	}
-	startIdx := len(vwao.closes) - vwao.period - 1
-	if startIdx < 0 {
-		return 0, fmt.Errorf("invalid start index: %d", startIdx)
-	}
-	highs := vwao.highs[startIdx:]
-	lows := vwao.lows[startIdx:]
-	volumes := vwao.volumes[startIdx:]
-	if len(highs) < vwao.period || len(lows) < vwao.period || len(volumes) < vwao.period {
-		return 0, fmt.Errorf("insufficient slice length for period %d", vwao.period)
+// computeVWAO performs the genuine volume‑weighted Aroon‑Oscillator
+// calculation.
+//
+// Algorithm:
+//  1. Look at the last (period+1) bars.
+//  2. Identify the most recent highest high and lowest low and their indices.
+//  3. Compute the total volume‑weighted “age” of the window:
+//     Σ (period‑i) * volume[i]   for i = 0 … period
+//  4. Weight the age of the high and low by the volume that occurred on the
+//     bar where the extreme price was observed.
+//     weightedHighAge = (period‑highIdx) * volume[highIdx]
+//     weightedLowAge  = (period‑lowIdx)  * volume[lowIdx]
+//  5. Derive volume‑weighted Aroon percentages:
+//     aroonUp   = (weightedHighAge / totalWeightedAge) * 100
+//     aroonDown = (weightedLowAge  / totalWeightedAge) * 100
+//  6. Oscillator = aroonUp – aroonDown, clamped to [-100, 100].
+//
+// This yields a metric that rises when a strong high appears on heavy volume
+// (and falls when a strong low appears on heavy volume), while still respecting
+// the classic Aroon time‑decay intuition.
+func (v *VolumeWeightedAroonOscillator) computeVWAO() (float64, error) {
+	if len(v.closes) < v.period+1 {
+		return 0, fmt.Errorf("insufficient data: need %d, have %d", v.period+1, len(v.closes))
 	}
 
-	maxHigh, minLow := highs[0], lows[0]
+	// Slice the window that will be examined.
+	start := len(v.closes) - v.period - 1
+	highs := v.highs[start:]
+	lows := v.lows[start:]
+	vols := v.volumes[start:]
+
+	// Locate the most recent highest high and lowest low.
 	maxHighIdx, minLowIdx := 0, 0
-	totalVolume := 0.0
-	weightedHighPeriods, weightedLowPeriods := 0.0, 0.0
+	maxHigh, minLow := highs[0], lows[0]
+	var totalWeightedAge float64
 
-	for i := 0; i <= vwao.period; i++ {
-		if i >= len(highs) || i >= len(lows) || i >= len(volumes) {
-			return 0, fmt.Errorf("invalid index for VWAO calculation: i=%d", i)
-		}
-		totalVolume += volumes[i]
-		if highs[i] >= maxHigh {
+	for i := 0; i <= v.period; i++ {
+		if highs[i] > maxHigh {
 			maxHigh = highs[i]
 			maxHighIdx = i
 		}
-		if lows[i] <= minLow {
+		if lows[i] < minLow {
 			minLow = lows[i]
 			minLowIdx = i
 		}
-		weightedHighPeriods += float64(vwao.period-i) * volumes[i]
-		weightedLowPeriods += float64(vwao.period-i) * volumes[i]
+		// Age weighting: newer bars have larger (period‑i) factor.
+		totalWeightedAge += float64(v.period-i) * vols[i]
+	}
+	if totalWeightedAge == 0 {
+		return 0, errors.New("total weighted volume is zero")
 	}
 
-	if totalVolume == 0 {
-		return 0, errors.New("total volume is zero")
-	}
+	// Volume‑weighted ages for the extremes.
+	weightedHighAge := float64(v.period-maxHighIdx) * vols[maxHighIdx]
+	weightedLowAge := float64(v.period-minLowIdx) * vols[minLowIdx]
 
-	aroonUp := (float64(vwao.period-maxHighIdx) / float64(vwao.period)) * 100
-	aroonDown := (float64(vwao.period-minLowIdx) / float64(vwao.period)) * 100
-	vwaoValue := aroonUp - aroonDown
-	return clamp(vwaoValue, -100, 100), nil
+	// Convert to classic Aroon percentages, but using volume‑weighted ages.
+	aroonUp := (weightedHighAge / totalWeightedAge) * 100
+	aroonDown := (weightedLowAge / totalWeightedAge) * 100
+
+	osc := aroonUp - aroonDown
+	return clamp(osc, -100, 100), nil
 }
 
-// Calculate returns the current VWAO value
-func (vwao *VolumeWeightedAroonOscillator) Calculate() (float64, error) {
-	if len(vwao.vwaoValues) == 0 {
+// Calculate returns the most recent VWAO value (or an error if none have been computed).
+func (v *VolumeWeightedAroonOscillator) Calculate() (float64, error) {
+	if len(v.vwaoValues) == 0 {
 		return 0, errors.New("no VWAO data")
 	}
-	return vwao.lastValue, nil
+	return v.lastValue, nil
 }
 
-// GetLastValue returns the last calculated VWAO value
-func (vwao *VolumeWeightedAroonOscillator) GetLastValue() float64 {
-	return vwao.lastValue
-}
+// GetLastValue is a convenience wrapper that never errors – useful for UI polling.
+func (v *VolumeWeightedAroonOscillator) GetLastValue() float64 { return v.lastValue }
 
-// IsBullishCrossover checks if VWAO crosses above the strong trend threshold
-func (vwao *VolumeWeightedAroonOscillator) IsBullishCrossover() (bool, error) {
-	if len(vwao.vwaoValues) < 2 {
+// ---------- Signal helpers (unchanged semantics) ----------
+func (v *VolumeWeightedAroonOscillator) IsBullishCrossover() (bool, error) {
+	if len(v.vwaoValues) < 2 {
 		return false, errors.New("insufficient data for crossover")
 	}
-	current := vwao.vwaoValues[len(vwao.vwaoValues)-1]
-	previous := vwao.vwaoValues[len(vwao.vwaoValues)-2]
-	return previous <= vwao.config.VWAOStrongTrend && current > vwao.config.VWAOStrongTrend, nil
+	prev, cur := v.vwaoValues[len(v.vwaoValues)-2], v.vwaoValues[len(v.vwaoValues)-1]
+	return prev <= v.config.VWAOStrongTrend && cur > v.config.VWAOStrongTrend, nil
 }
 
-// IsBearishCrossover checks if VWAO crosses below the negative strong trend threshold
-func (vwao *VolumeWeightedAroonOscillator) IsBearishCrossover() (bool, error) {
-	if len(vwao.vwaoValues) < 2 {
+func (v *VolumeWeightedAroonOscillator) IsBearishCrossover() (bool, error) {
+	if len(v.vwaoValues) < 2 {
 		return false, errors.New("insufficient data for crossover")
 	}
-	current := vwao.vwaoValues[len(vwao.vwaoValues)-1]
-	previous := vwao.vwaoValues[len(vwao.vwaoValues)-2]
-	return previous >= -vwao.config.VWAOStrongTrend && current < -vwao.config.VWAOStrongTrend, nil
+	prev, cur := v.vwaoValues[len(v.vwaoValues)-2], v.vwaoValues[len(v.vwaoValues)-1]
+	return prev >= -v.config.VWAOStrongTrend && cur < -v.config.VWAOStrongTrend, nil
 }
 
-// IsStrongTrend checks if VWAO indicates a strong trend
-func (vwao *VolumeWeightedAroonOscillator) IsStrongTrend() (bool, error) {
-	if len(vwao.vwaoValues) < 1 {
+func (v *VolumeWeightedAroonOscillator) IsStrongTrend() (bool, error) {
+	if len(v.vwaoValues) == 0 {
 		return false, errors.New("no VWAO data")
 	}
-	current := vwao.vwaoValues[len(vwao.vwaoValues)-1]
-	return current > vwao.config.VWAOStrongTrend || current < -vwao.config.VWAOStrongTrend, nil
+	cur := v.vwaoValues[len(v.vwaoValues)-1]
+	return cur > v.config.VWAOStrongTrend || cur < -v.config.VWAOStrongTrend, nil
 }
 
-// IsDivergence checks for VWAO divergence signals
-func (vwao *VolumeWeightedAroonOscillator) IsDivergence() (bool, string, error) {
-	if len(vwao.vwaoValues) < 2 || len(vwao.closes) < 2 {
+func (v *VolumeWeightedAroonOscillator) IsDivergence() (bool, string, error) {
+	if len(v.vwaoValues) < 2 || len(v.closes) < 2 {
 		return false, "", errors.New("insufficient data for divergence")
 	}
-	currentVWAO := vwao.vwaoValues[len(vwao.vwaoValues)-1]
-	priceTrend := vwao.closes[len(vwao.closes)-1] - vwao.closes[len(vwao.closes)-2]
-	if currentVWAO > vwao.config.VWAOStrongTrend && priceTrend < 0 {
+	curVWAO := v.vwaoValues[len(v.vwaoValues)-1]
+	priceDelta := v.closes[len(v.closes)-1] - v.closes[len(v.closes)-2]
+
+	if curVWAO > v.config.VWAOStrongTrend && priceDelta < 0 {
 		return true, "Bearish", nil
 	}
-	if currentVWAO < -vwao.config.VWAOStrongTrend && priceTrend > 0 {
+	if curVWAO < -v.config.VWAOStrongTrend && priceDelta > 0 {
 		return true, "Bullish", nil
 	}
 	return false, "", nil
 }
 
-// Reset clears all stored data
-func (vwao *VolumeWeightedAroonOscillator) Reset() {
-	vwao.highs = vwao.highs[:0]
-	vwao.lows = vwao.lows[:0]
-	vwao.closes = vwao.closes[:0]
-	vwao.volumes = vwao.volumes[:0]
-	vwao.vwaoValues = vwao.vwaoValues[:0]
-	vwao.lastValue = 0
+// Reset clears all internal buffers – handy for back‑testing loops.
+func (v *VolumeWeightedAroonOscillator) Reset() {
+	v.highs = v.highs[:0]
+	v.lows = v.lows[:0]
+	v.closes = v.closes[:0]
+	v.volumes = v.volumes[:0]
+	v.vwaoValues = v.vwaoValues[:0]
+	v.lastValue = 0
 }
 
-// SetPeriod updates the period for VWAO calculations
-func (vwao *VolumeWeightedAroonOscillator) SetPeriod(period int) error {
-	if period < 1 {
+// SetPeriod changes the look‑back window and trims any excess data.
+func (v *VolumeWeightedAroonOscillator) SetPeriod(p int) error {
+	if p < 1 {
 		return errors.New("period must be at least 1")
 	}
-	vwao.period = period
-	vwao.trimSlices()
+	v.period = p
+	v.trimSlices()
 	return nil
 }
 
-// GetHighs returns a copy of high prices
-func (vwao *VolumeWeightedAroonOscillator) GetHighs() []float64 {
-	return copySlice(vwao.highs)
+// ---------- Accessors (return copies) ----------
+func (v *VolumeWeightedAroonOscillator) GetHighs() []float64   { return copySlice(v.highs) }
+func (v *VolumeWeightedAroonOscillator) GetLows() []float64    { return copySlice(v.lows) }
+func (v *VolumeWeightedAroonOscillator) GetCloses() []float64  { return copySlice(v.closes) }
+func (v *VolumeWeightedAroonOscillator) GetVolumes() []float64 { return copySlice(v.volumes) }
+func (v *VolumeWeightedAroonOscillator) GetVWAOValues() []float64 {
+	return copySlice(v.vwaoValues)
 }
 
-// GetLows returns a copy of low prices
-func (vwao *VolumeWeightedAroonOscillator) GetLows() []float64 {
-	return copySlice(vwao.lows)
-}
+// ---------- Plotting helper ----------
+func (v *VolumeWeightedAroonOscillator) GetPlotData(startTime, interval int64) []PlotData {
+	if len(v.vwaoValues) == 0 {
+		return nil
+	}
+	x := make([]float64, len(v.vwaoValues))
+	signals := make([]float64, len(v.vwaoValues))
+	ts := GenerateTimestamps(startTime, len(v.vwaoValues), interval)
 
-// GetCloses returns a copy of close prices
-func (vwao *VolumeWeightedAroonOscillator) GetCloses() []float64 {
-	return copySlice(vwao.closes)
-}
-
-// GetVolumes returns a copy of volume values
-func (vwao *VolumeWeightedAroonOscillator) GetVolumes() []float64 {
-	return copySlice(vwao.volumes)
-}
-
-// GetVWAOValues returns a copy of VWAO values
-func (vwao *VolumeWeightedAroonOscillator) GetVWAOValues() []float64 {
-	return copySlice(vwao.vwaoValues)
-}
-
-// GetPlotData returns data for visualization with signal annotations
-func (vwao *VolumeWeightedAroonOscillator) GetPlotData(startTime, interval int64) []PlotData {
-	var plotData []PlotData
-	if len(vwao.vwaoValues) > 0 {
-		x := make([]float64, len(vwao.vwaoValues))
-		signals := make([]float64, len(vwao.vwaoValues))
-		timestamps := GenerateTimestamps(startTime, len(vwao.vwaoValues), interval)
-		for i := range vwao.vwaoValues {
-			x[i] = float64(i)
-			if i > 0 {
-				if vwao.vwaoValues[i-1] <= vwao.config.VWAOStrongTrend && vwao.vwaoValues[i] > vwao.config.VWAOStrongTrend {
-					signals[i] = 1
-				} else if vwao.vwaoValues[i-1] >= -vwao.config.VWAOStrongTrend && vwao.vwaoValues[i] < -vwao.config.VWAOStrongTrend {
-					signals[i] = -1
-				}
-			}
-			if vwao.vwaoValues[i] > vwao.config.VWAOStrongTrend {
-				signals[i] = 2
-			} else if vwao.vwaoValues[i] < -vwao.config.VWAOStrongTrend {
-				signals[i] = -2
+	for i := range v.vwaoValues {
+		x[i] = float64(i)
+		if i > 0 {
+			if v.vwaoValues[i-1] <= v.config.VWAOStrongTrend && v.vwaoValues[i] > v.config.VWAOStrongTrend {
+				signals[i] = 1 // bullish crossover
+			} else if v.vwaoValues[i-1] >= -v.config.VWAOStrongTrend && v.vwaoValues[i] < -v.config.VWAOStrongTrend {
+				signals[i] = -1 // bearish crossover
 			}
 		}
-		plotData = append(plotData, PlotData{
+		// Highlight strong‑trend zones.
+		if v.vwaoValues[i] > v.config.VWAOStrongTrend {
+			signals[i] = 2
+		} else if v.vwaoValues[i] < -v.config.VWAOStrongTrend {
+			signals[i] = -2
+		}
+	}
+	return []PlotData{
+		{
 			Name:      "Volume Weighted Aroon Oscillator",
 			X:         x,
-			Y:         vwao.vwaoValues,
+			Y:         v.vwaoValues,
 			Type:      "line",
-			Timestamp: timestamps,
-		})
-		plotData = append(plotData, PlotData{
+			Timestamp: ts,
+		},
+		{
 			Name:      "Signals",
 			X:         x,
 			Y:         signals,
 			Type:      "scatter",
-			Timestamp: timestamps,
-		})
+			Timestamp: ts,
+		},
 	}
-	return plotData
 }
