@@ -1,20 +1,3 @@
-// volume_weighted_aroon_oscillator.go
-//
-// Genuine Volume‑Weighted Aroon Oscillator (VWAO)
-// ------------------------------------------------------------
-// This implementation builds on the classic Aroon‑Oscillator (Aroon‑Up
-// – Aroon‑Down) but incorporates the traded volume of each bar.  The
-// idea is to weight the “time‑since‑extreme” component by the volume
-// that actually occurred on the bar where the extreme price was hit.
-// The resulting oscillator reacts both to price extremes and to the
-// amount of market activity behind those extremes.
-//
-// Public API (constructors, Add, Calculate, signal helpers, etc.) stays
-// identical to the original version, ensuring drop‑in compatibility.
-//
-// Author: Lumo (Proton) – 2025
-//
-
 package goti
 
 import (
