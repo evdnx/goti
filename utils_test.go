@@ -167,32 +167,3 @@ func TestValidatePositiveInt(t *testing.T) {
 		t.Fatalf("expected error for negative value")
 	}
 }
-
-/*
---------------------------------------------------------------
-
-	Small helper used by other ATSO tests (kept for completeness)
-	--------------------------------------------------------------
-*/
-func computeRawATSO(startIdx, period int, atso *AdaptiveTrendStrengthOscillator) (float64, error) {
-	if startIdx+period > len(atso.closes) {
-		return 0, fmt.Errorf("window out of range")
-	}
-	highs := atso.highs[startIdx : startIdx+period]
-	lows := atso.lows[startIdx : startIdx+period]
-	closes := atso.closes[startIdx : startIdx+period]
-
-	adaptPeriod := period
-	var upSum, downSum float64
-	for i := 1; i < adaptPeriod; i++ {
-		if closes[i] > closes[i-1] {
-			upSum += highs[i] - lows[i-1]
-		} else {
-			downSum += lows[i] - highs[i-1]
-		}
-	}
-	if upSum+downSum == 0 {
-		return 0, fmt.Errorf("division by zero in trend strength")
-	}
-	return ((upSum - downSum) / (upSum + downSum)) * 100, nil
-}
