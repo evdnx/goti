@@ -5,7 +5,9 @@ import (
 	"testing"
 )
 
-// Helper to create a fresh RSI with the default config.
+// ---------------------------------------------------------------------------
+// Helper – creates a fresh RSI with the *default* configuration.
+// ---------------------------------------------------------------------------
 func newDefaultRSI(t *testing.T) *RelativeStrengthIndex {
 	rsi, err := NewRelativeStrengthIndex()
 	if err != nil {
@@ -157,54 +159,85 @@ func TestRSI_EdgeCases_ZeroLossOrGain(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Crossover detection
+// Bullish crossover – price moves from below the oversold line to above it.
 // ---------------------------------------------------------------------------
 func TestRSI_BullishCrossoverDetection(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.RSIOversold = 30 // make threshold explicit
-	rsi, err := NewRelativeStrengthIndexWithParams(5, cfg)
-	if err != nil {
-		t.Fatalf("construction failed: %v", err)
+	rsi := newDefaultRSI(t)
+
+	/*
+	   Goal: generate a first RSI that is **≤ 30** (oversold) and a second RSI that
+	   becomes **> 30**, thereby triggering a bullish crossover.
+
+	   • The first 6 closes form a steep down‑trend → RSI ≈ 0.
+	   • Two subsequent upward closes push the RSI above 30.
+	   • Two extra “neutral” closes keep the two most‑recent RSI values in the
+	     internal slice (the crossover helpers need at least two values).
+	*/
+
+	prices := []float64{
+		100, 90, 80, 70, 60, // 5 descending closes
+		50,     // sixth close → first RSI (still oversold / ~0)
+		55, 60, // two upward closes → second RSI should cross >30
+		62, 64, // extra points – preserve the two RSI values
 	}
 
-	// Sequence: below oversold → cross above.
-	prices := []float64{10, 9, 8, 7, 6, 5, // deep down → RSI low
-		6, 7, 8, 9, 10, // climb back up → should cross
-	}
-	for _, p := range prices {
+	for i, p := range prices {
 		if err := rsi.Add(p); err != nil {
-			t.Fatalf("Add failed: %v", err)
+			t.Fatalf("Add failed at idx %d (price %.2f): %v", i, p, err)
 		}
 	}
+
+	// Verify we really have ≥2 RSI values before checking the crossover.
+	if len(rsi.GetRSIValues()) < 2 {
+		t.Fatalf("expected ≥2 RSI values, got %d", len(rsi.GetRSIValues()))
+	}
+
 	cross, err := rsi.IsBullishCrossover()
 	if err != nil {
-		t.Fatalf("IsBullishCrossover error: %v", err)
+		t.Fatalf("IsBullishCrossover returned error: %v", err)
 	}
 	if !cross {
-		t.Fatalf("expected bullish crossover, got false")
+		t.Fatalf("expected bullish crossover, got false – RSI values: %v", rsi.GetRSIValues())
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Bearish crossover – price moves from above the overbought line to below it.
+// ---------------------------------------------------------------------------
 func TestRSI_BearishCrossoverDetection(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.RSIOverbought = 70
-	rsi, _ := NewRelativeStrengthIndexWithParams(5, cfg)
+	rsi := newDefaultRSI(t)
 
-	// Sequence: above overbought → cross below.
-	prices := []float64{20, 21, 22, 23, 24, 25, // rising → RSI high
-		24, 23, 22, 21, 20, // falling → should cross
+	/*
+	   Goal: first RSI **≥ 70** (overbought) then a second RSI **< 70**.
+
+	   • Six ascending closes → first RSI ≈ 100.
+	   • Two descending closes → second RSI should dip below 70.
+	   • Two extra points keep the two latest RSI values alive.
+	*/
+
+	prices := []float64{
+		10, 20, 30, 40, 50, // 5 ascending closes
+		60,     // sixth close → first RSI (overbought / ~100)
+		55, 50, // two downward closes → second RSI should cross <70
+		48, 46, // extra points – preserve the two RSI values
 	}
-	for _, p := range prices {
+
+	for i, p := range prices {
 		if err := rsi.Add(p); err != nil {
-			t.Fatalf("Add failed: %v", err)
+			t.Fatalf("Add failed at idx %d (price %.2f): %v", i, p, err)
 		}
 	}
+
+	if len(rsi.GetRSIValues()) < 2 {
+		t.Fatalf("expected ≥2 RSI values, got %d", len(rsi.GetRSIValues()))
+	}
+
 	cross, err := rsi.IsBearishCrossover()
 	if err != nil {
-		t.Fatalf("IsBearishCrossover error: %v", err)
+		t.Fatalf("IsBearishCrossover returned error: %v", err)
 	}
 	if !cross {
-		t.Fatalf("expected bearish crossover, got false")
+		t.Fatalf("expected bearish crossover, got false – RSI values: %v", rsi.GetRSIValues())
 	}
 }
 
