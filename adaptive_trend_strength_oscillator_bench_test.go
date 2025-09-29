@@ -245,7 +245,7 @@ func benchmarkPlotDataJSON(b *testing.B, seriesCount int, pointsPerSeries int) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := formatPlotDataJSON(data); err != nil {
+		if _, err := FormatPlotDataJSON(data); err != nil {
 			b.Fatalf("JSON format error: %v", err)
 		}
 	}
@@ -277,7 +277,7 @@ func benchmarkPlotDataCSV(b *testing.B, seriesCount int, pointsPerSeries int) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := formatPlotDataCSV(data); err != nil {
+		if _, err := FormatPlotDataCSV(data); err != nil {
 			b.Fatalf("CSV format error: %v", err)
 		}
 	}

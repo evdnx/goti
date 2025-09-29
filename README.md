@@ -34,7 +34,7 @@ This Go package provides a set of robust technical indicators designed for tradi
 - **Error Handling**: Consistent checks for invalid inputs and insufficient data.
 - **Configurable Thresholds**: Customize overbought/oversold and divergence thresholds via `IndicatorConfig`.
 - **Weighted Signals**: `IndicatorSuite` supports weighted signal aggregation for prioritizing reliable indicators.
-- **Utils Support**: Relies on `utils.go` for common functions like `clamp`, `copySlice`, `calculateStandardDeviation`, and `formatPlotDataJSON`.
+- **Utils Support**: Relies on `utils.go` for common functions like `clamp`, `copySlice`, `calculateStandardDeviation`, and `FormatPlotDataJSON`.
 - **Testing**: Unit tests for all indicators ensure reliability across edge cases (see test files, e.g., `relative_strength_index_test.go`).
 
 ## Installation

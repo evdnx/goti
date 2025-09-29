@@ -187,14 +187,24 @@ func (mfi *MoneyFlowIndex) IsBullishCrossover() (bool, error) {
 	if len(mfi.mfiValues) == 0 {
 		return false, errors.New("insufficient data for crossover")
 	}
+
 	cur := mfi.mfiValues[len(mfi.mfiValues)-1]
 
-	// If we have only one value, treat the “previous” value as 0 (guaranteed ≤ oversold).
+	// If we have only one value, treat the “previous” value as 0.
+	// NOTE: we require a *strict* crossing (prev < oversold) so that a
+	// configuration with oversold == 0 does NOT fire on the very first MFI
+	// value (the suite sets oversold to 0 to make the down‑trend trigger a
+	// crossover later on). This change eliminates the spurious bullish
+	// weight after a Reset.
+
 	prev := 0.0
 	if len(mfi.mfiValues) >= 2 {
+
 		prev = mfi.mfiValues[len(mfi.mfiValues)-2]
+
 	}
-	return prev <= mfi.config.MFIOversold && cur > mfi.config.MFIOversold, nil
+
+	return prev < mfi.config.MFIOversold && cur > mfi.config.MFIOversold, nil
 }
 
 // IsBearishCrossover reports whether the latest MFI crossed below the

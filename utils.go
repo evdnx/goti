@@ -300,7 +300,7 @@ func GenerateTimestamps(startTime int64, count int, interval int64) []int64 {
 	return ts
 }
 
-func formatPlotDataJSON(data []PlotData) (string, error) {
+func FormatPlotDataJSON(data []PlotData) (string, error) {
 	if len(data) == 0 {
 		return "[]", nil
 	}
@@ -316,7 +316,7 @@ func formatPlotDataJSON(data []PlotData) (string, error) {
 	return string(b), nil
 }
 
-func formatPlotDataCSV(data []PlotData) (string, error) {
+func FormatPlotDataCSV(data []PlotData) (string, error) {
 	if len(data) == 0 {
 		return "", nil
 	}

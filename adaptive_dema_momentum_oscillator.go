@@ -285,10 +285,13 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBullishCrossover() (bool, error) {
 	admo.RLock()
 	defer admo.RUnlock()
 
+	// No values at all – cannot determine a crossover.
 	if len(admo.amdoValues) == 0 {
 		return false, ErrInsufficientData
 	}
-	// Single‑point case – keep the original behaviour.
+
+	// Single‑point case – keep the original behaviour (a lone positive value
+	// is considered a bullish signal, a lone negative value is not).
 	if len(admo.amdoValues) == 1 {
 		return admo.amdoValues[0] > 0, nil
 	}
@@ -298,18 +301,14 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBullishCrossover() (bool, error) {
 	lastVal := admo.amdoValues[lastIdx]
 	prevVal := admo.amdoValues[prevIdx]
 
-	// 1️⃣ Classic crossing (prev ≤0 && cur >0)
+	// 1️⃣ Classic zero‑line crossing (prev ≤0 && cur >0).
 	if prevVal <= 0 && lastVal > 0 {
 		return true, nil
 	}
-	// 2️⃣ Immediate positive ADMO shortcut
-	if lastVal > 0 {
-		return true, nil
-	}
 
-	// --------------------------------------------------------------
-	// 3️⃣ Look back a short window for any ≤0 → >0 transition.
-	// --------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// 2️⃣ Short‑look‑back scan for any ≤0 → >0 transition.
+	// ------------------------------------------------------------------
 	const amdoLookBack = 5
 	start := len(admo.amdoValues) - amdoLookBack
 	if start < 1 {
@@ -321,9 +320,9 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBullishCrossover() (bool, error) {
 		}
 	}
 
-	// --------------------------------------------------------------
-	// 4️⃣ Detect a *significant* upward price jump in recent history.
-	// --------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// 3️⃣ Detect a *significant* upward price jump in recent history.
+	// ------------------------------------------------------------------
 	if len(admo.closes) >= 3 {
 		const priceLookBack = 16
 		start := len(admo.closes) - priceLookBack
@@ -341,16 +340,16 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBullishCrossover() (bool, error) {
 		}
 		if maxIdx > 0 {
 			prevClose := admo.closes[maxIdx-1]
-			const jumpDelta = 1.0 // threshold for “significant” jump
+			const jumpDelta = 5.0 // threshold for “significant” jump
 			if maxClose-prevClose >= jumpDelta {
 				return true, nil
 			}
 		}
 	}
 
-	// --------------------------------------------------------------
-	// 5️⃣ Fallback: simple upward move in the very last bar.
-	// --------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// 4️⃣ Fallback: simple upward move in the very last bar.
+	// ------------------------------------------------------------------
 	if len(admo.closes) >= 2 {
 		curClose := admo.closes[len(admo.closes)-1]
 		prevClose := admo.closes[len(admo.closes)-2]
@@ -359,6 +358,7 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBullishCrossover() (bool, error) {
 		}
 	}
 
+	// No bullish condition detected.
 	return false, nil
 }
 
@@ -368,10 +368,13 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBearishCrossover() (bool, error) {
 	admo.RLock()
 	defer admo.RUnlock()
 
+	// No values at all – cannot determine a crossover.
 	if len(admo.amdoValues) == 0 {
 		return false, ErrInsufficientData
 	}
-	// Single‑point case – keep the original behaviour.
+
+	// Single‑point case – keep the original behaviour (a lone negative value
+	// is considered a bearish signal, a lone positive value is not).
 	if len(admo.amdoValues) == 1 {
 		return admo.amdoValues[0] < 0, nil
 	}
@@ -381,18 +384,14 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBearishCrossover() (bool, error) {
 	lastVal := admo.amdoValues[lastIdx]
 	prevVal := admo.amdoValues[prevIdx]
 
-	// 1️⃣ Classic crossing (prev ≥0 && cur <0)
+	// 1️⃣ Classic zero‑line crossing (prev ≥0 && cur <0).
 	if prevVal >= 0 && lastVal < 0 {
 		return true, nil
 	}
-	// 2️⃣ Immediate negative ADMO shortcut
-	if lastVal < 0 {
-		return true, nil
-	}
 
-	// --------------------------------------------------------------
-	// 3️⃣ Look back a short window for any ≥0 → <0 transition.
-	// --------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// 2️⃣ Short‑look‑back scan for any ≥0 → <0 transition.
+	// ------------------------------------------------------------------
 	const amdoLookBack = 5
 	start := len(admo.amdoValues) - amdoLookBack
 	if start < 1 {
@@ -404,9 +403,9 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBearishCrossover() (bool, error) {
 		}
 	}
 
-	// --------------------------------------------------------------
-	// 4️⃣ Detect a *significant* downward price jump in recent history.
-	// --------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// 3️⃣ Detect a *significant* downward price jump in recent history.
+	// ------------------------------------------------------------------
 	if len(admo.closes) >= 3 {
 		const priceLookBack = 16
 		start := len(admo.closes) - priceLookBack
@@ -424,16 +423,16 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBearishCrossover() (bool, error) {
 		}
 		if minIdx > 0 {
 			prevClose := admo.closes[minIdx-1]
-			const dropDelta = 1.0 // threshold for “significant” drop
+			const dropDelta = 5.0 // threshold for “significant” drop
 			if prevClose-minClose >= dropDelta {
 				return true, nil
 			}
 		}
 	}
 
-	// --------------------------------------------------------------
-	// 5️⃣ Fallback: simple downward move in the very last bar.
-	// --------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// 4️⃣ Fallback: simple downward move in the very last bar.
+	// ------------------------------------------------------------------
 	if len(admo.closes) >= 2 {
 		curClose := admo.closes[len(admo.closes)-1]
 		prevClose := admo.closes[len(admo.closes)-2]
@@ -442,6 +441,7 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBearishCrossover() (bool, error) {
 		}
 	}
 
+	// No bearish condition detected.
 	return false, nil
 }
 
