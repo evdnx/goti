@@ -1,132 +1,253 @@
-# GoTI Package
+**GoTI – Technical‑Analysis Library for Go**
 
-This Go package provides a set of robust technical indicators designed for trading and financial analysis. The indicators cover key market dynamics including momentum, trend, volume, and volatility, with a focus on adaptability, signal clarity, and memory efficiency. The package includes consistent error handling, visualization support, and customizable configurations.
+A lightweight, dependency‑free Go package that implements a suite of popular technical‑analysis indicators.  
+All indicators share a common design philosophy:
 
-## Indicators Overview
+- **Thread‑safe where needed** – e.g. `AdaptiveDEMAMomentumOscillator`.
+- **Memory‑bounded** – internal slices are trimmed to the minimum required capacity.
+- **Consistent error handling** – sentinel errors (`ErrInsufficientData`, `ErrNoMFIData`, …) are exported for `errors.Is`.
+- **Configurable thresholds** – via `IndicatorConfig`.
+- **Ready‑for‑visualisation** – each indicator can emit `PlotData` structures that serialize to JSON/CSV.
 
-1. **Adaptive Momentum Divergence Oscillator (AMDO)**  
-   An adaptive oscillator that detects momentum divergence by dynamically adjusting its period based on market volatility. Ideal for identifying potential reversals through zero-line crossovers and strong divergence thresholds (±50).
+---
 
-2. **Adaptive Trend Strength Oscillator (ATSO)**  
-   Measures trend strength with volatility-based period adjustment and EMA smoothing for reduced noise. Supports bullish/bearish crossovers and customizable volatility sensitivity.
+## **Table of Contents**
 
-3. **Volume-Weighted Aroon Oscillator (VWAO)**  
-   Enhances the Aroon Oscillator with volume weighting to detect trend direction changes. Provides zero-line crossovers, strong trend signals (±50), and individual Aroon Up/Down values.
+1. Installation
+2. Configuration
+3. Indicators
+   - Relative Strength Index (RSI)
+   - Money Flow Index (MFI)
+   - Volume‑Weighted Aroon Oscillator (VWAO)
+   - Hull Moving Average (HMA)
+   - Average True Range (ATR)
+   - Adaptive DEMA Momentum Oscillator (ADMO)
+   - Adaptive Trend Strength Oscillator (ATSO)
+4. Indicator Suite
+5. Utility Functions
+6. Testing & Benchmarking
+7. Serialization Helpers
+8. License
 
-4. **Hull Moving Average (HMA)**  
-   A low-lag moving average that combines weighted moving averages with a square root transformation for smoother, faster trend signals. Supports price vs. HMA crossovers and trend direction detection.
+---
 
-5. **Money Flow Index (MFI)**  
-   A volume-weighted momentum oscillator that identifies overbought/oversold conditions (80/20 thresholds) and divergence signals. Useful for assessing buying/selling pressure.
+## **Installation**
 
-6. **Relative Strength Index (RSI)**  
-   A momentum oscillator that measures the speed and change of price movements on a 0-100 scale. Identifies overbought (>70) and oversold (<30) conditions and supports divergence analysis for potential reversals.
+```
+go get github.com/yourorg/goti
+```
 
-7. **Average True Range (ATR)**  
-   A volatility indicator that measures the average range of price movements, useful for assessing market volatility and setting risk management parameters like stop-loss levels.
+The package only depends on the Go standard library.
 
-## Features
+---
 
-- **Adaptivity**: Indicators like AMDO and ATSO dynamically adjust periods based on volatility for better performance in varying market conditions.
-- **Crossover Signals**: Built-in methods for bullish/bearish crossovers and divergence detection.
-- **Visualization**: `GetPlotData` method returns `PlotData` structs compatible with JSON/CSV output for charting libraries (e.g., Chart.js, Plotly), including signal annotations and timestamp support.
-- **Memory Efficiency**: Pre-allocated slices and trimming to minimize memory usage.
-- **Error Handling**: Consistent checks for invalid inputs and insufficient data.
-- **Configurable Thresholds**: Customize overbought/oversold and divergence thresholds via `IndicatorConfig`.
-- **Weighted Signals**: `IndicatorSuite` supports weighted signal aggregation for prioritizing reliable indicators.
-- **Utils Support**: Relies on `utils.go` for common functions like `clamp`, `copySlice`, `calculateStandardDeviation`, and `FormatPlotDataJSON`.
-- **Testing**: Unit tests for all indicators ensure reliability across edge cases (see test files, e.g., `relative_strength_index_test.go`).
+## **Configuration**
 
-## Installation
+All indicators accept an `IndicatorConfig` that bundles the tunable thresholds and a few misc parameters.
 
-No external dependencies are required beyond standard Go libraries (e.g., `math`, `encoding/json`).
+```
+cfg := goti.DefaultConfig()
+cfg.RSIOverbought = 75          // raise overbought level for RSI
+cfg.MFIOversold = 15           // tighter oversold for MFI
+cfg.ATSEMAperiod = 10          // longer EMA smoothing for ATSO
+```
 
-## Usage
+Validate a config before use:
 
-### Basic Example (RSI)
+```
+if err := cfg.Validate(); err != nil {
+    // handle mis‑configuration
+}
+```
+
+---
+
+## **Indicators**
+
+Each indicator follows the same lifecycle:
+
+```go
+// 1️⃣ Create
+ind, err := goti.New<IndicatorName>(/*optional params*/)
+
+// 2️⃣ Feed data (Add / AddCandle)
+err = ind.Add(/*price data*/)
+
+// 3️⃣ Query results
+value, err := ind.Calculate()
+bull, err := ind.IsBullishCrossover()
+```
+
+### **Relative Strength Index (RSI)**
+
+- **Package:** `relative_strength_index.go`
+- **Default period:** 5
+- **Key methods:** `Add`, `Calculate`, `IsBullishCrossover`, `IsBearishCrossover`, `IsDivergence`, `GetPlotData`
+
+### **Money Flow Index (MFI)**
+
+- **Package:** `money_flow_index.go`
+- **Default period:** 5, volume‑scaled by `MFIVolumeScale` (default 300 000)
+- **Sentinel error:** `ErrNoMFIData` (use `errors.Is`)
+
+### **Volume‑Weighted Aroon Oscillator (VWAO)**
+
+- **Package:** `volume_weighted_aroon_oscillator.go`
+- **Default period:** 14
+- **Strong‑trend threshold:** `VWAOStrongTrend` (default 70)
+
+### **Hull Moving Average (HMA)**
+
+- **Package:** `hull_moving_average.go`
+- **Default period:** 9
+- **Crossover helpers** (`IsBullishCrossover`, `IsBearishCrossover`) and trend detection (`GetTrendDirection`).
+
+### **Average True Range (ATR)**
+
+- **Package:** `average_true_range.go`
+- **Default period:** 14
+- **Functional option:** `WithCloseValidation(bool)` to disable the “close must lie between high/low” check.
+
+### **Adaptive DEMA Momentum Oscillator (ADMO)**
+
+- **Package:** `adaptive_dema_momentum_oscillator.go`
+- **Features:**
+  - Dual EMA → DEMA → adaptive momentum calculation.
+  - Zero‑line crossovers, significant‑price‑jump heuristics, and divergence detection.
+  - Fully thread‑safe (`sync.RWMutex`).
+
+### **Adaptive Trend Strength Oscillator (ATSO)**
+
+- **Package:** `adaptive_trend_strength_oscillator.go`
+- **Adaptive period** based on recent volatility, EMA‑smoothed output.
+- **Crossover detection** scans the entire raw series for sign changes (improved over the original “last‑two‑points only” logic).
+
+---
+
+## **Indicator Suite**
+
+`IndicatorSuite` aggregates all six indicators and provides a weighted‑signal engine.
+
+```
+suite, err := goti.NewIndicatorSuiteWithConfig(cfg)
+suite.Add(high, low, close, volume) // feeds every sub‑indicator
+signal, err := suite.GetCombinedSignal() // “Strong Bullish”, “Neutral”, etc.
+```
+
+The suite also offers:
+
+- `GetCombinedBearishSignal()`
+- `GetDivergenceSignals()` – returns a map of indicator‑specific divergences.
+- `Reset()` – clears every sub‑indicator while preserving the config.
+
+---
+
+## **Utility Functions**
+
+**FunctionDescription**`keepLast[T any](s []T, n int) []T`Return the last *n* elements of a slice (generic).  
+`GenerateTimestamps(start, count, interval int64) []int64`Produce Unix‑epoch timestamps for chart axes.  
+`FormatPlotDataJSON(data []PlotData) (string, error)`Marshal a slice of `PlotData` to JSON (validated lengths).  
+`FormatPlotDataCSV(data []PlotData) (string, error)`Serialize `PlotData` to CSV.  
+`clamp(v, min, max float64) float64`Clamp a value to a closed interval.  
+`calculateEMA`, `calculateWMA`, `calculateStandardDeviation`Core numeric kernels used by the indicators.
+
+All helpers are deliberately **publicly exported** only when needed; the rest remain package‑private.
+
+---
+
+## **Testing & Benchmarking**
+
+The repository ships with a comprehensive test matrix (`*_test.go`) covering:
+
+- Correctness of each indicator (edge cases, period changes, resets).
+- Defensive‑copy safety of getters.
+- Divergence and crossover detection logic.
+
+Run the full suite:
+
+```
+go test ./...
+```
+
+Benchmarks are located in `*_bench_test.go`. Example:
+
+```
+go test -bench=. -benchmem ./...
+```
+
+Typical benchmark categories:
+
+- **Add** – cost of ingesting a single price/candle.
+- **Full pipeline** – `Add` + `Calculate`.
+- **Signal detection** – `IsBullishCrossover`, `IsDivergence`, etc.
+- **Plot data generation** – JSON/CSV serialization overhead.
+
+Feel free to add new benchmarks for custom workloads; the helper functions (`genOHLC`, `randVals`, etc.) are deterministic to keep results reproducible.
+
+---
+
+## **Serialization Helpers**
+
+`PlotData` is the canonical container for charting libraries:
+
+```go
+type PlotData struct {
+    Name      string    `json:"name"`
+    X         []float64 `json:"x"`
+    Y         []float64 `json:"y"`
+    Type      string    `json:"type,omitempty"`   // "line" or "scatter"
+    Signal    string    `json:"signal,omitempty"` // optional label for scatter series
+    Timestamp []int64   `json:"timestamp,omitempty"`
+}
+```
+
+Both JSON and CSV exporters validate that `len(X) == len(Y)` and return a clear error if the invariant is broken.
+
+---
+
+## **License**
+
+This library is released under the **MIT License**. Feel free to fork, modify, and use it in commercial projects.
+
+---
+
+### **Quick‑start Example**
+
 ```go
 package main
 
 import (
-	"fmt"
-	"path/to/goti"
+    "fmt"
+    "github.com/yourorg/goti"
 )
 
 func main() {
-	// Initialize RSI
-	rsi, err := goti.NewRelativeStrengthIndex()
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
+    // Initialise a suite with custom thresholds.
+    cfg := goti.DefaultConfig()
+    cfg.RSIOverbought = 80
+    cfg.RSIOversold = 20
+    suite, _ := goti.NewIndicatorSuiteWithConfig(cfg)
 
-	// Add data
-	rsi.Add(100.5)
-	rsi.Add(101.2)
-	// ... add more data
+    // Simulate a stream of OHLCV data.
+    data := []struct{ h, l, c, v float64 }{
+        {101, 99, 100, 1_000},
+        {102, 98, 101, 1_200},
+        // …
+    }
 
-	// Check signals
-	bullish, _ := rsi.IsBullishCrossover()
-	if bullish {
-		fmt.Println("Bullish crossover detected!")
-	}
+    for _, d := range data {
+        if err := suite.Add(d.h, d.l, d.c, d.v); err != nil {
+            panic(err)
+        }
+    }
 
-	// Get plot data
-	plotData := rsi.GetPlotData(1625097600000, 86400000) // Start time, daily interval
-	jsonData, _ := goti.FormatPlotDataJSON(plotData)
-	fmt.Println("Plot JSON:", jsonData)
+    // Get a combined signal.
+    signal, _ := suite.GetCombinedSignal()
+    fmt.Println("Combined signal:", signal)
+
+    // Export chart data for the UI.
+    plot := suite.GetPlotData(1625097600000, 60_000) // start‑time, 1‑min interval
+    json, _ := goti.FormatPlotDataJSON(plot)
+    fmt.Println(json)
 }
-```
-
-### ATR Example
-```go
-atr, err := goti.NewAverageTrueRange()
-if err != nil {
-	fmt.Println("Error:", err)
-	return
-}
-atr.Add(102.0, 99.0, 100.5)
-atr.Add(103.0, 98.5, 101.0)
-// ... add more data
-value, _ := atr.Calculate()
-fmt.Println("ATR Value:", value)
-```
-
-### Combined Suite Example
-```go
-config := goti.DefaultConfig()
-config.RSIOverbought = 75 // Customize thresholds
-suite, err := goti.NewIndicatorSuiteWithConfig(config)
-if err != nil {
-	fmt.Println("Error:", err)
-	return
-}
-
-// Add data (high, low, close, volume)
-suite.Add(102.0, 99.0, 100.5, 1000.0)
-// ... add more data
-
-signal, _ := suite.GetCombinedSignal()
-fmt.Println("Combined Signal:", signal)
-```
-
-## Documentation
-
-Each indicator includes:
-
-- **Constructor**: `New<IndicatorName>()` or `New<IndicatorName>WithParams(...)`.
-- **Add Method**: Appends new data and updates calculations.
-- **Calculate/GetLastValue**: Retrieves the latest value.
-- **Signal Methods**: E.g., `IsBullishCrossover()`, `IsBearishCrossover()`, `IsStrongDivergence()`.
-- **Reset/SetPeriod**: Clears data or updates parameters.
-- **GetPlotData**: Returns visualization data with annotations and timestamps.
-- **Configurability**: Supports custom thresholds via `IndicatorConfig`.
-
-For detailed methods, refer to the source code comments. Unit tests are available in `<indicator>_test.go` files to validate functionality.
-
-## Testing
-
-The package includes unit tests for all indicators, covering initialization, data addition, calculations, and edge cases. Run tests with:
-```bash
-go test ./...
 ```
