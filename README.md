@@ -33,7 +33,7 @@ All indicators share a common design philosophy:
 
 ## **Installation**
 
-```
+```go
 go get github.com/yourorg/goti
 ```
 
@@ -45,7 +45,7 @@ The package only depends on the Go standard library.
 
 All indicators accept an `IndicatorConfig` that bundles the tunable thresholds and a few misc parameters.
 
-```
+```go
 cfg := goti.DefaultConfig()
 cfg.RSIOverbought = 75          // raise overbought level for RSI
 cfg.MFIOversold = 15           // tighter oversold for MFI
@@ -54,7 +54,7 @@ cfg.ATSEMAperiod = 10          // longer EMA smoothing for ATSO
 
 Validate a config before use:
 
-```
+```go
 if err := cfg.Validate(); err != nil {
     // handle mis‑configuration
 }
@@ -128,7 +128,7 @@ bull, err := ind.IsBullishCrossover()
 
 `IndicatorSuite` aggregates all six indicators and provides a weighted‑signal engine.
 
-```
+```go
 suite, err := goti.NewIndicatorSuiteWithConfig(cfg)
 suite.Add(high, low, close, volume) // feeds every sub‑indicator
 signal, err := suite.GetCombinedSignal() // “Strong Bullish”, “Neutral”, etc.
@@ -165,13 +165,13 @@ The repository ships with a comprehensive test matrix (`*_test.go`) covering:
 
 Run the full suite:
 
-```
+```go
 go test ./...
 ```
 
 Benchmarks are located in `*_bench_test.go`. Example:
 
-```
+```go
 go test -bench=. -benchmem ./...
 ```
 
