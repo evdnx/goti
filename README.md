@@ -21,7 +21,7 @@ All indicators share a common design philosophy:
    - Volume‑Weighted Aroon Oscillator (VWAO)
    - Hull Moving Average (HMA)
    - Average True Range (ATR)
-   - Adaptive DEMA Momentum Oscillator (ADMO)
+   - Adaptive DEMA (Double Exponential Moving Average) Momentum Oscillator (ADMO)
    - Adaptive Trend Strength Oscillator (ATSO)
 4. Indicator Suite
 5. Utility Functions
@@ -108,7 +108,7 @@ bull, err := ind.IsBullishCrossover()
 - **Default period:** 14
 - **Functional option:** `WithCloseValidation(bool)` to disable the “close must lie between high/low” check.
 
-### **Adaptive DEMA Momentum Oscillator (ADMO)**
+### **Adaptive DEMA (Double Exponential Moving Average) Momentum Oscillator (ADMO)**
 
 - **Package:** `adaptive_dema_momentum_oscillator.go`
 - **Features:**
