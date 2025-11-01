@@ -39,7 +39,13 @@ type MovingAverage struct {
 	maType    MovingAverageType
 	period    int
 	values    []float64
-	lastValue float64 // holds the previously‑calculated EMA (used for recursion)
+	lastValue float64 // holds the previously‑calculated value (EMA only)
+
+	// Internal bookkeeping for EMA so we can perform incremental updates as
+	// new samples arrive without needing the full history.
+	sampleCount    int
+	emaSeedSum     float64
+	emaInitialized bool
 }
 
 // NewMovingAverage initializes a MovingAverage with the specified type and period
@@ -50,11 +56,12 @@ func NewMovingAverage(maType MovingAverageType, period int) (*MovingAverage, err
 	if maType != SMAMovingAverage && maType != EMAMovingAverage && maType != WMAMovingAverage {
 		return nil, errors.New("invalid moving average type")
 	}
-	return &MovingAverage{
+	ma := &MovingAverage{
 		maType: maType,
 		period: period,
 		values: make([]float64, 0, period),
-	}, nil
+	}
+	return ma, nil
 }
 
 /* -------------------------------------------------------------------------
@@ -68,8 +75,7 @@ func (ma *MovingAverage) Add(value float64) error {
 	if !isNonNegativePrice(value) {
 		return fmt.Errorf("cannot add negative or NaN price %f", value)
 	}
-	ma.values = append(ma.values, value)
-	ma.trimSlices()
+	ma.pushSample(value)
 	return nil
 }
 
@@ -79,9 +85,46 @@ func (ma *MovingAverage) AddValue(value float64) error {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return fmt.Errorf("cannot add invalid value %f", value)
 	}
-	ma.values = append(ma.values, value)
-	ma.trimSlices()
+	ma.pushSample(value)
 	return nil
+}
+
+func (ma *MovingAverage) pushSample(value float64) {
+	ma.values = append(ma.values, value)
+	ma.sampleCount++
+	if ma.maType == EMAMovingAverage {
+		ma.updateEMA(value)
+	}
+	ma.trimSlices()
+}
+
+// updateEMA incrementally updates the EMA state each time a new value is
+// ingested. Once we have gathered `period` samples we seed the EMA with the
+// simple average of those initial observations. Subsequent calls apply the
+// classic smoothing recursion using only the most recent sample and the
+// previously computed EMA value.
+func (ma *MovingAverage) updateEMA(latest float64) {
+	if ma.period <= 0 {
+		return
+	}
+
+	// Accumulate the first `period` values to seed the EMA with an SMA.
+	if ma.sampleCount <= ma.period {
+		ma.emaSeedSum += latest
+		if ma.sampleCount < ma.period {
+			return
+		}
+		ma.lastValue = ma.emaSeedSum / float64(ma.period)
+		ma.emaInitialized = true
+		return
+	}
+
+	if !ma.emaInitialized {
+		ma.lastValue = ma.emaSeedSum / float64(ma.period)
+		ma.emaInitialized = true
+	}
+	alpha := 2.0 / float64(ma.period+1)
+	ma.lastValue = alpha*latest + (1-alpha)*ma.lastValue
 }
 
 /* -------------------------------------------------------------------------
@@ -109,14 +152,10 @@ func (ma *MovingAverage) Calculate() (float64, error) {
 		return sum / float64(ma.period), nil
 
 	case EMAMovingAverage:
-		// Exponential Moving Average – uses the previously‑calculated EMA.
-		ema, err := calculateEMA(ma.values, ma.period, ma.lastValue)
-		if err != nil {
-			return 0, err
+		if !ma.emaInitialized {
+			return 0, fmt.Errorf("insufficient data: need %d, have %d", ma.period, len(ma.values))
 		}
-		// Store the EMA for the next recursive step.
-		ma.lastValue = ema
-		return ema, nil
+		return ma.lastValue, nil
 
 	case WMAMovingAverage:
 		// Weighted Moving Average.
@@ -132,8 +171,11 @@ func (ma *MovingAverage) Calculate() (float64, error) {
 --------------------------------------------------------------------------*/
 
 func (ma *MovingAverage) Reset() {
-	ma.values = ma.values[:0]
+	ma.values = make([]float64, 0, ma.period)
 	ma.lastValue = 0
+	ma.sampleCount = 0
+	ma.emaSeedSum = 0
+	ma.emaInitialized = false
 }
 
 func (ma *MovingAverage) SetPeriod(period int) error {
@@ -141,7 +183,7 @@ func (ma *MovingAverage) SetPeriod(period int) error {
 		return errors.New("period must be at least 1")
 	}
 	ma.period = period
-	ma.trimSlices()
+	ma.Reset()
 	return nil
 }
 

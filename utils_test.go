@@ -129,6 +129,79 @@ func TestExponentialMovingAverage(t *testing.T) {
 	}
 }
 
+func TestExponentialMovingAverageRespondsToShocks(t *testing.T) {
+	ma, err := NewMovingAverage(EMAMovingAverage, 3)
+	if err != nil {
+		t.Fatalf("unexpected error creating EMA: %v", err)
+	}
+
+	series := []float64{10, 1, 1, 1, 1}
+	expected := map[int]float64{
+		3: 4.0,
+		4: 2.5,
+		5: 1.75,
+	}
+
+	for idx, v := range series {
+		if err := ma.Add(v); err != nil {
+			t.Fatalf("Add error at index %d: %v", idx, err)
+		}
+		sampleCount := idx + 1
+		if sampleCount < 3 {
+			continue
+		}
+		got, err := ma.Calculate()
+		if err != nil {
+			t.Fatalf("Calculate error at index %d: %v", idx, err)
+		}
+		want := expected[sampleCount]
+		if math.Abs(got-want) > 1e-9 {
+			t.Fatalf("EMA mismatch at index %d: want %.4f, got %.4f", idx, want, got)
+		}
+
+		gotAgain, err := ma.Calculate()
+		if err != nil {
+			t.Fatalf("Calculate (repeat) error at index %d: %v", idx, err)
+		}
+		if math.Abs(gotAgain-want) > 1e-9 {
+			t.Fatalf("EMA repeat mismatch at index %d: want %.4f, got %.4f", idx, want, gotAgain)
+		}
+	}
+}
+
+func TestExponentialMovingAverageAllowsNegativeValues(t *testing.T) {
+	ma, err := NewMovingAverage(EMAMovingAverage, 2)
+	if err != nil {
+		t.Fatalf("unexpected error creating EMA: %v", err)
+	}
+
+	values := []float64{-1, 1, -3}
+	for idx, v := range values {
+		if err := ma.AddValue(v); err != nil {
+			t.Fatalf("AddValue error at index %d: %v", idx, err)
+		}
+	}
+
+	got, err := ma.Calculate()
+	if err != nil {
+		t.Fatalf("Calculate error: %v", err)
+	}
+
+	want := -2.0 // seeded SMA is 0, final EMA (alpha=2/3) after -3 is -2
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("EMA expected %.2f, got %.4f", want, got)
+	}
+
+	// Ensure repeated calls do not mutate the result.
+	gotAgain, err := ma.Calculate()
+	if err != nil {
+		t.Fatalf("Calculate (repeat) error: %v", err)
+	}
+	if math.Abs(gotAgain-want) > 1e-9 {
+		t.Fatalf("EMA repeat mismatch: want %.2f, got %.4f", want, gotAgain)
+	}
+}
+
 func TestWeightedMovingAverage(t *testing.T) {
 	ma, err := NewMovingAverage(WMAMovingAverage, 3) // use the constant defined in the package
 	if err != nil {
