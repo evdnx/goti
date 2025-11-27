@@ -1,9 +1,11 @@
-package indicator
+package trend
 
 import (
 	"errors"
 	"fmt"
 	"math"
+
+	"github.com/evdnx/goti/indicator/core"
 )
 
 // ---------------------------------------------------------------------------
@@ -46,7 +48,7 @@ func NewHullMovingAverageWithParams(period int) (*HullMovingAverage, error) {
 // It validates the price, updates the internal buffers and, when enough
 // data is present, computes the next HMA value.
 func (hma *HullMovingAverage) Add(close float64) error {
-	if !isValidPrice(close) {
+	if !core.IsValidPrice(close) {
 		return fmt.Errorf("%w: %v", ErrInvalidPrice, close)
 	}
 	hma.closes = append(hma.closes, close)
@@ -54,7 +56,7 @@ func (hma *HullMovingAverage) Add(close float64) error {
 	// Only start calculations once we have at least `period` closing prices.
 	if len(hma.closes) >= hma.period {
 		// 1️⃣ Full‑period WMA
-		wmaFull, err := calculateWMA(hma.closes[len(hma.closes)-hma.period:], hma.period)
+		wmaFull, err := core.CalculateWMA(hma.closes[len(hma.closes)-hma.period:], hma.period)
 		if err != nil {
 			return err
 		}
@@ -64,7 +66,7 @@ func (hma *HullMovingAverage) Add(close float64) error {
 		if wmaHalfPeriod < 1 {
 			wmaHalfPeriod = 1
 		}
-		wmaHalf, err := calculateWMA(hma.closes[len(hma.closes)-wmaHalfPeriod:], wmaHalfPeriod)
+		wmaHalf, err := core.CalculateWMA(hma.closes[len(hma.closes)-wmaHalfPeriod:], wmaHalfPeriod)
 		if err != nil {
 			return err
 		}
@@ -79,7 +81,7 @@ func (hma *HullMovingAverage) Add(close float64) error {
 			sqrtPeriod = 1
 		}
 		if len(hma.rawHMAs) >= sqrtPeriod {
-			hmaValue, err := calculateWMA(hma.rawHMAs[len(hma.rawHMAs)-sqrtPeriod:], sqrtPeriod)
+			hmaValue, err := core.CalculateWMA(hma.rawHMAs[len(hma.rawHMAs)-sqrtPeriod:], sqrtPeriod)
 			if err == nil {
 				hma.hmaValues = append(hma.hmaValues, hmaValue)
 				hma.lastValue = hmaValue
@@ -186,12 +188,12 @@ func (hma *HullMovingAverage) SetPeriod(period int) error {
 
 // GetCloses returns a copy of the stored close prices.
 func (hma *HullMovingAverage) GetCloses() []float64 {
-	return copySlice(hma.closes)
+	return core.CopySlice(hma.closes)
 }
 
 // GetHMAValues returns a copy of the computed HMA series.
 func (hma *HullMovingAverage) GetHMAValues() []float64 {
-	return copySlice(hma.hmaValues)
+	return core.CopySlice(hma.hmaValues)
 }
 
 // DetectSignals walks the HMA series and produces a slice where:
@@ -225,7 +227,7 @@ func (hma *HullMovingAverage) DetectSignals() []float64 {
 // GetPlotData builds the three PlotData series (HMA, price, signals)
 // ready for JSON/CSV export.  Timestamps are generated from the supplied
 // start time and interval.
-func (hma *HullMovingAverage) GetPlotData(startTime, interval int64) []PlotData {
+func (hma *HullMovingAverage) GetPlotData(startTime, interval int64) []core.PlotData {
 	if len(hma.hmaValues) == 0 {
 		return nil
 	}
@@ -234,7 +236,7 @@ func (hma *HullMovingAverage) GetPlotData(startTime, interval int64) []PlotData 
 	for i := range x {
 		x[i] = float64(i)
 	}
-	timestamps := GenerateTimestamps(startTime, len(hma.hmaValues), interval)
+	timestamps := core.GenerateTimestamps(startTime, len(hma.hmaValues), interval)
 
 	// Align closes with the HMA slice.
 	closesStartIdx := len(hma.closes) - len(hma.hmaValues)
@@ -245,7 +247,7 @@ func (hma *HullMovingAverage) GetPlotData(startTime, interval int64) []PlotData 
 
 	signals := hma.DetectSignals()
 
-	plotData := []PlotData{
+	plotData := []core.PlotData{
 		{
 			Name:      "Hull Moving Average",
 			X:         x,

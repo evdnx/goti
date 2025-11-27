@@ -1,9 +1,11 @@
-package indicator
+package volatility
 
 import (
 	"errors"
 	"fmt"
 	"math"
+
+	"github.com/evdnx/goti/indicator/core"
 )
 
 // AverageTrueRange calculates the Average True Range (ATR).
@@ -72,13 +74,13 @@ func (atr *AverageTrueRange) AddCandle(high, low, close float64) error {
 	if high < low {
 		return errors.New("high must be >= low")
 	}
-	if !isValidPrice(high) || !isValidPrice(low) {
+	if !core.IsValidPrice(high) || !core.IsValidPrice(low) {
 		return errors.New("high/low contain invalid price")
 	}
 	if atr.validateClose && (close < low || close > high) {
 		return fmt.Errorf("close price %.4f out of bounds [%.4f, %.4f]", close, low, high)
 	}
-	if !isValidPrice(close) {
+	if !core.IsValidPrice(close) {
 		return errors.New("invalid close price")
 	}
 
@@ -167,7 +169,7 @@ func (atr *AverageTrueRange) calculateATR() (float64, error) {
 
 /* ---------- Optional getters (defensive copies) ---------- */
 
-func (atr *AverageTrueRange) GetATRValues() []float64 { return copySlice(atr.atrValues) }
-func (atr *AverageTrueRange) GetHighs() []float64     { return copySlice(atr.highs) }
-func (atr *AverageTrueRange) GetLows() []float64      { return copySlice(atr.lows) }
-func (atr *AverageTrueRange) GetCloses() []float64    { return copySlice(atr.closes) }
+func (atr *AverageTrueRange) GetATRValues() []float64 { return core.CopySlice(atr.atrValues) }
+func (atr *AverageTrueRange) GetHighs() []float64     { return core.CopySlice(atr.highs) }
+func (atr *AverageTrueRange) GetLows() []float64      { return core.CopySlice(atr.lows) }
+func (atr *AverageTrueRange) GetCloses() []float64    { return core.CopySlice(atr.closes) }

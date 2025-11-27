@@ -1,14 +1,16 @@
-package indicator
+package trend
 
 import (
 	"fmt"
 	"math"
 	"testing"
+
+	"github.com/evdnx/goti/config"
 )
 
 // Helper to build a simple ATSO instance with deterministic config.
 func newTestATSO(t *testing.T) *AdaptiveTrendStrengthOscillator {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	// Use a very short EMA period so we can observe smoothing quickly.
 	cfg.ATSEMAperiod = 2
 	atso, err := NewAdaptiveTrendStrengthOscillatorWithParams(2, 5, 3, cfg)
@@ -223,7 +225,7 @@ func TestATSO_Add_InvalidPrices(t *testing.T) {
 // Verify that the internal EMA is correctly seeded with SMA when first EMA calc occurs.
 func TestATSO_EMASeed(t *testing.T) {
 	// Use a tiny EMA period so we can inspect the seeded value easily.
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.ATSEMAperiod = 3
 	atso, err := NewAdaptiveTrendStrengthOscillatorWithParams(2, 5, 3, cfg)
 	if err != nil {

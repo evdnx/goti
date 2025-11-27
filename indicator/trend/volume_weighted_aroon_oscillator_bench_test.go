@@ -1,7 +1,9 @@
-package indicator
+package trend
 
 import (
 	"testing"
+
+	"github.com/evdnx/goti/config"
 )
 
 // ---------------------------------------------------------------------------
@@ -18,7 +20,7 @@ func (v *VolumeWeightedAroonOscillator) benchCompute() (float64, error) {
 func BenchmarkVWAO_Add(b *testing.B) {
 	// Use a modest period so that a VWAO is computed on almost every Add.
 	const period = 10
-	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(period, DefaultConfig())
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(period, config.DefaultConfig())
 
 	// Pre‑generate deterministic data to avoid allocation inside the loop.
 	highs, lows, closes, vols := genDeterministicData(period)
@@ -43,7 +45,7 @@ func BenchmarkVWAO_AddParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		// Each goroutine gets its own oscillator instance – otherwise we would
 		// race on the internal slices.
-		osc, _ := NewVolumeWeightedAroonOscillatorWithParams(period, DefaultConfig())
+		osc, _ := NewVolumeWeightedAroonOscillatorWithParams(period, config.DefaultConfig())
 		i := 0
 		for pb.Next() {
 			idx := i % len(highs)
@@ -61,7 +63,7 @@ func BenchmarkVWAO_AddParallel(b *testing.B) {
 // ---------------------------------------------------------------------------
 func BenchmarkVWAO_ComputeOnly(b *testing.B) {
 	const period = 14
-	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(period, DefaultConfig())
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(period, config.DefaultConfig())
 
 	// Fill the oscillator once so computeVWAO has a full window.
 	highs, lows, closes, vols := genDeterministicData(period)
@@ -82,7 +84,7 @@ func BenchmarkVWAO_ComputeOnly(b *testing.B) {
 // ---------------------------------------------------------------------------
 func BenchmarkVWAO_Reset(b *testing.B) {
 	const period = 20
-	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(period, DefaultConfig())
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(period, config.DefaultConfig())
 	highs, lows, closes, vols := genDeterministicData(period)
 
 	b.ResetTimer()
@@ -101,7 +103,7 @@ func BenchmarkVWAO_Reset(b *testing.B) {
 // ---------------------------------------------------------------------------
 func BenchmarkVWAO_GetPlotData(b *testing.B) {
 	const period = 14
-	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(period, DefaultConfig())
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(period, config.DefaultConfig())
 
 	// Produce enough candles for a handful of VWAO values (say 100).
 	const totalCandles = 100

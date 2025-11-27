@@ -1,34 +1,37 @@
-package indicator
+package volume
 
 import (
 	"math/rand"
 	"testing"
 	"time"
+
+	"github.com/evdnx/goti/config"
+	"github.com/evdnx/goti/indicator/core"
 )
 
 /*
 =====================================================================
-  1️⃣ Moving‑Average benchmarks
+ 1️⃣ Moving‑Average benchmarks
 =====================================================================
 */
 
 func BenchmarkNewMovingAverage_EMA(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, _ = NewMovingAverage(EMAMovingAverage, 20)
+		_, _ = core.NewMovingAverage(core.EMAMovingAverage, 20)
 	}
 }
 
 func BenchmarkNewMovingAverage_SMA(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, _ = NewMovingAverage(SMAMovingAverage, 20)
+		_, _ = core.NewMovingAverage(core.SMAMovingAverage, 20)
 	}
 }
 
 // Feed a realistic stream of price data (≈10 k points) and call Calculate
 // after each addition.  This mimics a live chart where the UI wants the
 // latest MA on every tick.
-func benchmarkMAAddAndCalculate(b *testing.B, typ MovingAverageType, period int) {
-	ma, _ := NewMovingAverage(typ, period)
+func benchmarkMAAddAndCalculate(b *testing.B, typ core.MovingAverageType, period int) {
+	ma, _ := core.NewMovingAverage(typ, period)
 
 	// deterministic pseudo‑random data – fast and reproducible
 	rng := rand.New(rand.NewSource(42))
@@ -46,13 +49,13 @@ func benchmarkMAAddAndCalculate(b *testing.B, typ MovingAverageType, period int)
 }
 
 func BenchmarkMovingAverage_AddCalculate_EMA_Period20(b *testing.B) {
-	benchmarkMAAddAndCalculate(b, EMAMovingAverage, 20)
+	benchmarkMAAddAndCalculate(b, core.EMAMovingAverage, 20)
 }
 func BenchmarkMovingAverage_AddCalculate_SMA_Period20(b *testing.B) {
-	benchmarkMAAddAndCalculate(b, SMAMovingAverage, 20)
+	benchmarkMAAddAndCalculate(b, core.SMAMovingAverage, 20)
 }
 func BenchmarkMovingAverage_AddCalculate_WMA_Period20(b *testing.B) {
-	benchmarkMAAddAndCalculate(b, WMAMovingAverage, 20)
+	benchmarkMAAddAndCalculate(b, core.WMAMovingAverage, 20)
 }
 
 /*
@@ -64,7 +67,7 @@ func BenchmarkMovingAverage_AddCalculate_WMA_Period20(b *testing.B) {
 // Helper that builds a ready‑to‑use MFI with a given period and a
 // deterministic data generator.
 func newBenchMFI(period int) *MoneyFlowIndex {
-	mfi, err := NewMoneyFlowIndexWithParams(period, DefaultConfig())
+	mfi, err := NewMoneyFlowIndexWithParams(period, config.DefaultConfig())
 	if err != nil {
 		panic(err) // should never happen in a benchmark
 	}
@@ -181,7 +184,7 @@ func BenchmarkMFI_GetPlotData(b *testing.B) {
 */
 
 func BenchmarkIndicatorConfig_Validate(b *testing.B) {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = cfg.Validate()
@@ -196,7 +199,7 @@ func BenchmarkIndicatorConfig_Validate(b *testing.B) {
 
 func BenchmarkClamp(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_ = clamp(float64(i%200)-100, -50, 150)
+		_ = core.Clamp(float64(i%200)-100, -50, 150)
 	}
 }
 
@@ -211,6 +214,6 @@ func BenchmarkCalculateStandardDeviation(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateStandardDeviation(data, mean)
+		_ = core.CalculateStandardDeviation(data, mean)
 	}
 }

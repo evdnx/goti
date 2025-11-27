@@ -1,8 +1,11 @@
-package indicator
+package trend
 
 import (
 	"errors"
 	"fmt"
+
+	"github.com/evdnx/goti/config"
+	"github.com/evdnx/goti/indicator/core"
 )
 
 // VolumeWeightedAroonOscillator calculates a volume‑weighted Aroon Oscillator.
@@ -14,18 +17,18 @@ type VolumeWeightedAroonOscillator struct {
 	volumes    []float64
 	vwaoValues []float64
 	lastValue  float64
-	config     IndicatorConfig
+	config     config.IndicatorConfig
 }
 
 // NewVolumeWeightedAroonOscillator creates a VWAO with the default period (14)
 // and the library’s default configuration.
 func NewVolumeWeightedAroonOscillator() (*VolumeWeightedAroonOscillator, error) {
-	return NewVolumeWeightedAroonOscillatorWithParams(14, DefaultConfig())
+	return NewVolumeWeightedAroonOscillatorWithParams(14, config.DefaultConfig())
 }
 
 // NewVolumeWeightedAroonOscillatorWithParams creates a VWAO with a custom period
 // and configuration.
-func NewVolumeWeightedAroonOscillatorWithParams(period int, cfg IndicatorConfig) (*VolumeWeightedAroonOscillator, error) {
+func NewVolumeWeightedAroonOscillatorWithParams(period int, cfg config.IndicatorConfig) (*VolumeWeightedAroonOscillator, error) {
 	if period < 1 {
 		return nil, errors.New("period must be at least 1")
 	}
@@ -47,7 +50,7 @@ func NewVolumeWeightedAroonOscillatorWithParams(period int, cfg IndicatorConfig)
 // Validation mirrors the rest of the library: prices must be non‑negative,
 // high ≥ low, and volume must be a valid number.
 func (v *VolumeWeightedAroonOscillator) Add(high, low, close, volume float64) error {
-	if high < low || !isNonNegativePrice(close) || !isValidVolume(volume) {
+	if high < low || !core.IsNonNegativePrice(close) || !core.IsValidVolume(volume) {
 		return errors.New("invalid price or volume")
 	}
 	v.highs = append(v.highs, high)
@@ -143,7 +146,7 @@ func (v *VolumeWeightedAroonOscillator) computeVWAO() (float64, error) {
 	aroonDown := (weightedLowAge / totalWeightedAge) * 100
 
 	osc := aroonUp - aroonDown
-	return clamp(osc, -100, 100), nil
+	return core.Clamp(osc, -100, 100), nil
 }
 
 // Calculate returns the most recent VWAO value (or an error if none have been computed).
@@ -219,22 +222,22 @@ func (v *VolumeWeightedAroonOscillator) SetPeriod(p int) error {
 }
 
 // ---------- Accessors (return copies) ----------
-func (v *VolumeWeightedAroonOscillator) GetHighs() []float64   { return copySlice(v.highs) }
-func (v *VolumeWeightedAroonOscillator) GetLows() []float64    { return copySlice(v.lows) }
-func (v *VolumeWeightedAroonOscillator) GetCloses() []float64  { return copySlice(v.closes) }
-func (v *VolumeWeightedAroonOscillator) GetVolumes() []float64 { return copySlice(v.volumes) }
+func (v *VolumeWeightedAroonOscillator) GetHighs() []float64   { return core.CopySlice(v.highs) }
+func (v *VolumeWeightedAroonOscillator) GetLows() []float64    { return core.CopySlice(v.lows) }
+func (v *VolumeWeightedAroonOscillator) GetCloses() []float64  { return core.CopySlice(v.closes) }
+func (v *VolumeWeightedAroonOscillator) GetVolumes() []float64 { return core.CopySlice(v.volumes) }
 func (v *VolumeWeightedAroonOscillator) GetVWAOValues() []float64 {
-	return copySlice(v.vwaoValues)
+	return core.CopySlice(v.vwaoValues)
 }
 
 // ---------- Plotting helper ----------
-func (v *VolumeWeightedAroonOscillator) GetPlotData(startTime, interval int64) []PlotData {
+func (v *VolumeWeightedAroonOscillator) GetPlotData(startTime, interval int64) []core.PlotData {
 	if len(v.vwaoValues) == 0 {
 		return nil
 	}
 	x := make([]float64, len(v.vwaoValues))
 	signals := make([]float64, len(v.vwaoValues))
-	ts := GenerateTimestamps(startTime, len(v.vwaoValues), interval)
+	ts := core.GenerateTimestamps(startTime, len(v.vwaoValues), interval)
 
 	for i := range v.vwaoValues {
 		x[i] = float64(i)
@@ -252,7 +255,7 @@ func (v *VolumeWeightedAroonOscillator) GetPlotData(startTime, interval int64) [
 			signals[i] = -2
 		}
 	}
-	return []PlotData{
+	return []core.PlotData{
 		{
 			Name:      "Volume Weighted Aroon Oscillator",
 			X:         x,

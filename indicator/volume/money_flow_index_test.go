@@ -1,10 +1,11 @@
-package indicator
+package volume
 
 import (
 	"encoding/json"
 	"errors"
 	"testing"
 
+	"github.com/evdnx/goti/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -13,7 +14,7 @@ import (
 // Helper – creates a MFI instance with a deterministic config
 // ---------------------------------------------------------------------------
 func newTestMFI(t *testing.T) *MoneyFlowIndex {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	// Use a small, easy‑to‑verify scale factor
 	cfg.MFIVolumeScale = 1.0
 	mfi, err := NewMoneyFlowIndexWithParams(3, cfg)
@@ -26,18 +27,18 @@ func newTestMFI(t *testing.T) *MoneyFlowIndex {
 // ---------------------------------------------------------------------------
 func TestNewMoneyFlowIndex_Validation(t *testing.T) {
 	// Invalid period
-	_, err := NewMoneyFlowIndexWithParams(0, DefaultConfig())
+	_, err := NewMoneyFlowIndexWithParams(0, config.DefaultConfig())
 	assert.Error(t, err)
 
 	// Overbought <= oversold
-	badCfg := DefaultConfig()
+	badCfg := config.DefaultConfig()
 	badCfg.MFIOverbought = 20
 	badCfg.MFIOversold = 30
 	_, err = NewMoneyFlowIndexWithParams(5, badCfg)
 	assert.Error(t, err)
 
 	// Invalid config (ATSEMAperiod <= 0)
-	badCfg = DefaultConfig()
+	badCfg = config.DefaultConfig()
 	badCfg.ATSEMAperiod = 0
 	_, err = NewMoneyFlowIndexWithParams(5, badCfg)
 	assert.Error(t, err)
@@ -260,7 +261,7 @@ func TestMoneyFlowIndex_Divergence(t *testing.T) {
 	// Helper to create a MoneyFlowIndex with a custom period.
 	// ---------------------------------------------------------------------------
 	newMFI := func(period int) *MoneyFlowIndex {
-		mfi, err := NewMoneyFlowIndexWithParams(period, DefaultConfig())
+		mfi, err := NewMoneyFlowIndexWithParams(period, config.DefaultConfig())
 		if err != nil {
 			t.Fatalf("failed to create MoneyFlowIndex: %v", err)
 		}

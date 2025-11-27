@@ -1,8 +1,10 @@
-package indicator
+package trend
 
 import (
 	"math"
 	"testing"
+
+	"github.com/evdnx/goti/config"
 )
 
 // ---------------------------------------------------------------------------
@@ -49,10 +51,10 @@ func genCalcSimpleData(period int) (highs, lows, closes, volumes []float64) {
 // Constructor validation (period & config)
 // ---------------------------------------------------------------------------
 func TestNewVolumeWeightedAroonOscillator_Errors(t *testing.T) {
-	if _, err := NewVolumeWeightedAroonOscillatorWithParams(0, DefaultConfig()); err == nil {
+	if _, err := NewVolumeWeightedAroonOscillatorWithParams(0, config.DefaultConfig()); err == nil {
 		t.Fatalf("expected error for period < 1")
 	}
-	bad := DefaultConfig()
+	bad := config.DefaultConfig()
 	bad.ATSEMAperiod = 0
 	if _, err := NewVolumeWeightedAroonOscillatorWithParams(14, bad); err == nil {
 		t.Fatalf("expected error for invalid config")
@@ -79,7 +81,7 @@ func TestVWAO_AddValidation(t *testing.T) {
 // SetPeriod – ensure internal buffers shrink correctly.
 // ---------------------------------------------------------------------------
 func TestVWAO_SetPeriod(t *testing.T) {
-	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(3, DefaultConfig())
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(3, config.DefaultConfig())
 	h, l, c, v := genDeterministicData(3) // 4 candles
 	for i := 0; i < len(h); i++ {
 		if err := osc.Add(h[i], l[i], c[i], v[i]); err != nil {
@@ -104,7 +106,7 @@ func TestVWAO_SetPeriod(t *testing.T) {
 // Reset – use a tiny period so we can actually compute a VWAO after reset.
 // ---------------------------------------------------------------------------
 func TestVWAO_Reset(t *testing.T) {
-	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, DefaultConfig())
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, config.DefaultConfig())
 	h, l, c, v := genDeterministicData(2) // 3 candles
 	for i := 0; i < len(h); i++ {
 		_ = osc.Add(h[i], l[i], c[i], v[i])
@@ -128,7 +130,7 @@ func TestVWAO_Reset(t *testing.T) {
 // Plot data – use a tiny period so we actually generate values.
 // ---------------------------------------------------------------------------
 func TestVWAO_GetPlotData(t *testing.T) {
-	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, DefaultConfig())
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, config.DefaultConfig())
 	h, l, c, v := genDeterministicData(2) // 3 candles → one VWAO
 	for i := 0; i < len(h); i++ {
 		_ = osc.Add(h[i], l[i], c[i], v[i])
@@ -150,7 +152,7 @@ func TestVWAO_GetPlotData(t *testing.T) {
 // internal state).
 // ---------------------------------------------------------------------------
 func TestVWAO_GettersCopySafety(t *testing.T) {
-	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, DefaultConfig())
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, config.DefaultConfig())
 	h, l, c, v := genDeterministicData(2)
 	for i := 0; i < len(h); i++ {
 		_ = osc.Add(h[i], l[i], c[i], v[i])
@@ -165,7 +167,7 @@ func TestVWAO_GettersCopySafety(t *testing.T) {
 func TestVWAO_Clamping(t *testing.T) {
 	// Construct a scenario where weightedHighAge >> totalWeightedAge,
 	// which would yield an aroonUp > 100 before clamping.
-	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(1, DefaultConfig())
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(1, config.DefaultConfig())
 
 	// First candle – just to fill the slice.
 	_ = osc.Add(100, 90, 95, 1)
@@ -191,7 +193,7 @@ func TestVWAO_CalculationSimple(t *testing.T) {
 	period := 4
 	highs, lows, closes, vols := genCalcSimpleData(period)
 
-	osc, err := NewVolumeWeightedAroonOscillatorWithParams(period, DefaultConfig())
+	osc, err := NewVolumeWeightedAroonOscillatorWithParams(period, config.DefaultConfig())
 	if err != nil {
 		t.Fatalf("ctor error: %v", err)
 	}
@@ -227,7 +229,7 @@ func TestVWAO_CalculationSimple(t *testing.T) {
 // volume is zero and the third Add must return an error.
 // ---------------------------------------------------------------------------
 func TestVWAO_ZeroVolumeError(t *testing.T) {
-	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, DefaultConfig())
+	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, config.DefaultConfig())
 
 	// Three candles, all zero volume.
 	osc.Add(110, 100, 105, 0) // i0
@@ -249,7 +251,7 @@ func TestVWAO_ZeroVolumeError(t *testing.T) {
 // logic from the oscillator calculation.
 // ---------------------------------------------------------------------------
 func TestVWAO_SignalHelpers(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.VWAOStrongTrend = 10 // low threshold to make the logic obvious
 
 	osc, _ := NewVolumeWeightedAroonOscillatorWithParams(2, cfg)

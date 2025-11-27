@@ -2,11 +2,14 @@
 // artifact_id: d1285cba-15ed-4b99-886d-5c0be17de312
 // artifact_version_id: 6e7f0a4c-9b6e-4d3c-8f5a-7c4e2d1b0e6f
 
-package indicator
+package momentum
 
 import (
 	"errors"
 	"fmt"
+
+	"github.com/evdnx/goti/config"
+	"github.com/evdnx/goti/indicator/core"
 )
 
 // RelativeStrengthIndex calculates the Relative Strength Index.
@@ -24,7 +27,7 @@ type RelativeStrengthIndex struct {
 	closes    []float64
 	rsiValues []float64
 	lastValue float64
-	config    IndicatorConfig
+	config    config.IndicatorConfig
 
 	// Smoothed averages – maintained across calls after the first full period.
 	avgGain float64
@@ -34,29 +37,29 @@ type RelativeStrengthIndex struct {
 // NewRelativeStrengthIndex creates an RSI calculator with the default period (5)
 // and the library’s default configuration.
 func NewRelativeStrengthIndex() (*RelativeStrengthIndex, error) {
-	return NewRelativeStrengthIndexWithParams(5, DefaultConfig())
+	return NewRelativeStrengthIndexWithParams(5, config.DefaultConfig())
 }
 
 // NewRelativeStrengthIndexWithParams creates an RSI calculator with a custom
 // period and configuration.
-func NewRelativeStrengthIndexWithParams(period int, config IndicatorConfig) (*RelativeStrengthIndex, error) {
+func NewRelativeStrengthIndexWithParams(period int, cfg config.IndicatorConfig) (*RelativeStrengthIndex, error) {
 	if period < 1 {
 		return nil, errors.New("period must be at least 1")
 	}
-	if config.RSIOverbought <= config.RSIOversold {
+	if cfg.RSIOverbought <= cfg.RSIOversold {
 		return nil, errors.New("RSI overbought threshold must be greater than oversold")
 	}
 	return &RelativeStrengthIndex{
 		period:    period,
 		closes:    make([]float64, 0, period+1),
 		rsiValues: make([]float64, 0, period),
-		config:    config,
+		config:    cfg,
 	}, nil
 }
 
 // Add appends a new closing price. When enough data is present it updates the RSI.
 func (rsi *RelativeStrengthIndex) Add(close float64) error {
-	if !isNonNegativePrice(close) {
+	if !core.IsNonNegativePrice(close) {
 		return errors.New("invalid price")
 	}
 	rsi.closes = append(rsi.closes, close)
@@ -142,7 +145,7 @@ func (rsi *RelativeStrengthIndex) calculateRSI() (float64, error) {
 	}
 	rs := rsi.avgGain / rsi.avgLoss
 	rsiValue := 100 - (100 / (1 + rs))
-	return clamp(rsiValue, 0, 100), nil
+	return core.Clamp(rsiValue, 0, 100), nil
 }
 
 // Calculate returns the most recent RSI value (or an error if none exist).
@@ -235,23 +238,23 @@ func (rsi *RelativeStrengthIndex) SetPeriod(period int) error {
 
 // GetCloses returns a copy of the stored close prices.
 func (rsi *RelativeStrengthIndex) GetCloses() []float64 {
-	return copySlice(rsi.closes)
+	return core.CopySlice(rsi.closes)
 }
 
 // GetRSIValues returns a copy of the calculated RSI values.
 func (rsi *RelativeStrengthIndex) GetRSIValues() []float64 {
-	return copySlice(rsi.rsiValues)
+	return core.CopySlice(rsi.rsiValues)
 }
 
 // GetPlotData prepares data for visualisation, including signal annotations.
-func (rsi *RelativeStrengthIndex) GetPlotData(startTime, interval int64) []PlotData {
-	var plotData []PlotData
+func (rsi *RelativeStrengthIndex) GetPlotData(startTime, interval int64) []core.PlotData {
+	var plotData []core.PlotData
 	if len(rsi.rsiValues) == 0 {
 		return plotData
 	}
 	x := make([]float64, len(rsi.rsiValues))
 	signals := make([]float64, len(rsi.rsiValues))
-	timestamps := GenerateTimestamps(startTime, len(rsi.rsiValues), interval)
+	timestamps := core.GenerateTimestamps(startTime, len(rsi.rsiValues), interval)
 
 	for i := range rsi.rsiValues {
 		x[i] = float64(i)
@@ -272,14 +275,14 @@ func (rsi *RelativeStrengthIndex) GetPlotData(startTime, interval int64) []PlotD
 		}
 	}
 
-	plotData = append(plotData, PlotData{
+	plotData = append(plotData, core.PlotData{
 		Name:      "Relative Strength Index",
 		X:         x,
 		Y:         rsi.rsiValues,
 		Type:      "line",
 		Timestamp: timestamps,
 	})
-	plotData = append(plotData, PlotData{
+	plotData = append(plotData, core.PlotData{
 		Name:      "Signals",
 		X:         x,
 		Y:         signals,

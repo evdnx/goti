@@ -1,8 +1,11 @@
-package indicator
+package volume
 
 import (
 	"errors"
 	"fmt"
+
+	"github.com/evdnx/goti/config"
+	"github.com/evdnx/goti/indicator/core"
 )
 
 // ------------------------------------------------------------
@@ -42,26 +45,26 @@ type MoneyFlowIndex struct {
 	volumes   []float64
 	mfiValues []float64
 	lastValue float64
-	config    IndicatorConfig
+	config    config.IndicatorConfig
 }
 
 // NewMoneyFlowIndex creates a MFI instance with the default period (5) and
 // the default IndicatorConfig.
 func NewMoneyFlowIndex() (*MoneyFlowIndex, error) {
-	return NewMoneyFlowIndexWithParams(5, DefaultConfig())
+	return NewMoneyFlowIndexWithParams(5, config.DefaultConfig())
 }
 
 // NewMoneyFlowIndexWithParams creates a MFI instance with a custom period and
 // configuration.  The function validates the period, the over‑/under‑bought
 // relationship and runs IndicatorConfig.Validate().
-func NewMoneyFlowIndexWithParams(period int, config IndicatorConfig) (*MoneyFlowIndex, error) {
+func NewMoneyFlowIndexWithParams(period int, cfg config.IndicatorConfig) (*MoneyFlowIndex, error) {
 	if period < 1 {
 		return nil, errors.New("period must be at least 1")
 	}
-	if config.MFIOverbought <= config.MFIOversold {
+	if cfg.MFIOverbought <= cfg.MFIOversold {
 		return nil, errors.New("MFI overbought threshold must be greater than oversold")
 	}
-	if err := config.Validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 	return &MoneyFlowIndex{
@@ -71,7 +74,7 @@ func NewMoneyFlowIndexWithParams(period int, config IndicatorConfig) (*MoneyFlow
 		closes:    make([]float64, 0, period+1),
 		volumes:   make([]float64, 0, period+1),
 		mfiValues: make([]float64, 0, period),
-		config:    config,
+		config:    cfg,
 	}, nil
 }
 
@@ -81,10 +84,10 @@ func (mfi *MoneyFlowIndex) Add(high, low, close, volume float64) error {
 	if high < low {
 		return fmt.Errorf("high (%f) must be >= low (%f)", high, low)
 	}
-	if !isNonNegativePrice(close) {
+	if !core.IsNonNegativePrice(close) {
 		return fmt.Errorf("close price (%f) must be non‑negative", close)
 	}
-	if !isValidVolume(volume) {
+	if !core.IsValidVolume(volume) {
 		return fmt.Errorf("volume (%f) must be non‑negative", volume)
 	}
 	mfi.highs = append(mfi.highs, high)
@@ -108,13 +111,13 @@ func (mfi *MoneyFlowIndex) Add(high, low, close, volume float64) error {
 // period computed MFI values.
 func (mfi *MoneyFlowIndex) trimSlices() {
 	if len(mfi.closes) > mfi.period+1 {
-		mfi.highs = keepLast(mfi.highs, mfi.period+1)
-		mfi.lows = keepLast(mfi.lows, mfi.period+1)
-		mfi.closes = keepLast(mfi.closes, mfi.period+1)
-		mfi.volumes = keepLast(mfi.volumes, mfi.period+1)
+		mfi.highs = core.KeepLast(mfi.highs, mfi.period+1)
+		mfi.lows = core.KeepLast(mfi.lows, mfi.period+1)
+		mfi.closes = core.KeepLast(mfi.closes, mfi.period+1)
+		mfi.volumes = core.KeepLast(mfi.volumes, mfi.period+1)
 	}
 	if len(mfi.mfiValues) > mfi.period {
-		mfi.mfiValues = keepLast(mfi.mfiValues, mfi.period)
+		mfi.mfiValues = core.KeepLast(mfi.mfiValues, mfi.period)
 	}
 }
 
@@ -160,7 +163,7 @@ func (mfi *MoneyFlowIndex) calculateMFI() (float64, error) {
 
 	moneyRatio := positiveMF / negativeMF
 	mmfi := 100 - (100 / (1 + moneyRatio))
-	return clamp(mmfi, 0, 100), nil
+	return core.Clamp(mmfi, 0, 100), nil
 }
 
 // Calculate returns the most recent MFI value (or an error if none have been
@@ -336,7 +339,7 @@ func (mfi *MoneyFlowIndex) IsDivergence() (string, error) {
 //     the crossover marker takes precedence.
 //
 // The X‑axis is the index of the value in the internal slice.
-func (mfi *MoneyFlowIndex) GetPlotData() ([]PlotData, error) {
+func (mfi *MoneyFlowIndex) GetPlotData() ([]core.PlotData, error) {
 	if len(mfi.mfiValues) == 0 {
 		return nil, errors.New("no MFI data")
 	}
@@ -367,21 +370,21 @@ func (mfi *MoneyFlowIndex) GetPlotData() ([]PlotData, error) {
 		}
 	}
 
-	mainSeries := PlotData{
+	mainSeries := core.PlotData{
 		Name: "MFI",
 		X:    xVals,
 		Y:    yVals,
 		Type: "line",
 	}
-	signalSeries := PlotData{
+	signalSeries := core.PlotData{
 		Name:   "Signals",
 		X:      xVals,
 		Y:      signals,
 		Type:   "scatter",
 		Signal: "crossover",
 	}
-	return []PlotData{mainSeries, signalSeries}, nil
+	return []core.PlotData{mainSeries, signalSeries}, nil
 }
 
 // GetValues returns a copy of the raw MFI values slice.
-func (mfi *MoneyFlowIndex) GetValues() []float64 { return copySlice(mfi.mfiValues) }
+func (mfi *MoneyFlowIndex) GetValues() []float64 { return core.CopySlice(mfi.mfiValues) }

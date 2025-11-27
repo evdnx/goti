@@ -1,4 +1,4 @@
-package indicator // same package as the library code
+package core // same package as the library code
 
 import (
 	"fmt"

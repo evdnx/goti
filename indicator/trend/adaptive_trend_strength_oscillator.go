@@ -1,10 +1,13 @@
-package indicator
+package trend
 
 import (
 	"errors"
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/evdnx/goti/config"
+	"github.com/evdnx/goti/indicator/core"
 )
 
 // ---------------------------------------------------------------------------
@@ -24,14 +27,14 @@ type AdaptiveTrendStrengthOscillator struct {
 	closes           []float64
 	atsoValues       []float64 // EMA‑smoothed values (what Calculate() returns)
 	rawValues        []float64 // raw, unsmoothed ATSO values (used for cross‑overs)
-	ema              *MovingAverage
-	config           IndicatorConfig
+	ema              *core.MovingAverage
+	config           config.IndicatorConfig
 }
 
 // NewAdaptiveTrendStrengthOscillator creates an oscillator with the “standard”
 // settings (min = 2, max = 14, volatility = 14) and the default IndicatorConfig.
 func NewAdaptiveTrendStrengthOscillator() (*AdaptiveTrendStrengthOscillator, error) {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	// The EMA period used for smoothing can be overridden via the config.
 	cfg.ATSEMAperiod = 5
 	return NewAdaptiveTrendStrengthOscillatorWithParams(2, 14, 14, cfg)
@@ -39,11 +42,11 @@ func NewAdaptiveTrendStrengthOscillator() (*AdaptiveTrendStrengthOscillator, err
 
 // NewAdaptiveTrendStrengthOscillatorWithParams creates an oscillator with custom
 // period parameters and a user‑supplied IndicatorConfig.
-func NewAdaptiveTrendStrengthOscillatorWithParams(minPeriod, maxPeriod, volatilityPeriod int, cfg IndicatorConfig) (*AdaptiveTrendStrengthOscillator, error) {
+func NewAdaptiveTrendStrengthOscillatorWithParams(minPeriod, maxPeriod, volatilityPeriod int, cfg config.IndicatorConfig) (*AdaptiveTrendStrengthOscillator, error) {
 	if minPeriod < 1 || maxPeriod < minPeriod || volatilityPeriod < 1 {
 		return nil, errors.New("invalid period configuration")
 	}
-	ema, err := NewMovingAverage(EMAMovingAverage, cfg.ATSEMAperiod)
+	ema, err := core.NewMovingAverage(core.EMAMovingAverage, cfg.ATSEMAperiod)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create EMA: %w", err)
 	}
@@ -77,7 +80,7 @@ func (atso *AdaptiveTrendStrengthOscillator) Add(high, low, close float64) error
 		// The tests expect an error when the high price is lower than the low price.
 		return fmt.Errorf("high (%v) is lower than low (%v)", high, low)
 	}
-	if !isNonNegativePrice(close) {
+	if !core.IsNonNegativePrice(close) {
 		return errors.New("invalid close price")
 	}
 
@@ -364,7 +367,7 @@ func (atso *AdaptiveTrendStrengthOscillator) Reset() error {
 // ---------------------------------------------------------------------------
 
 // GetPlotData – produces data structures suitable for CSV/JSON export
-func (atso *AdaptiveTrendStrengthOscillator) GetPlotData() []PlotData {
+func (atso *AdaptiveTrendStrengthOscillator) GetPlotData() []core.PlotData {
 	raw := atso.RawValues()
 	smooth := atso.SmoothedValues()
 
@@ -378,7 +381,7 @@ func (atso *AdaptiveTrendStrengthOscillator) GetPlotData() []PlotData {
 		x[i] = float64(i)
 	}
 
-	return []PlotData{
+	return []core.PlotData{
 		{
 			// Raw, unsmoothed ATSO values
 			Name: "ATSO (raw)",

@@ -1,8 +1,10 @@
-package indicator
+package momentum
 
 import (
 	"errors"
 	"testing"
+
+	"github.com/evdnx/goti/config"
 )
 
 // ---------------------------------------------------------------------------
@@ -20,14 +22,14 @@ func newDefaultRSI(t *testing.T) *RelativeStrengthIndex {
 // Construction & basic validation
 // ---------------------------------------------------------------------------
 func TestNewRelativeStrengthIndex_WithInvalidPeriod(t *testing.T) {
-	_, err := NewRelativeStrengthIndexWithParams(0, DefaultConfig())
+	_, err := NewRelativeStrengthIndexWithParams(0, config.DefaultConfig())
 	if err == nil {
 		t.Fatalf("expected error for period < 1")
 	}
 }
 
 func TestNewRelativeStrengthIndex_WithBadConfig(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.RSIOverbought = 40
 	cfg.RSIOversold = 60 // overbought <= oversold -> invalid
 	_, err := NewRelativeStrengthIndexWithParams(5, cfg)
@@ -245,7 +247,7 @@ func TestRSI_BearishCrossoverDetection(t *testing.T) {
 // Overbought / Oversold status reporting
 // ---------------------------------------------------------------------------
 func TestRSI_GetOverboughtOversold(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.RSIOverbought = 70
 	cfg.RSIOversold = 30
 	rsi, _ := NewRelativeStrengthIndexWithParams(5, cfg)
@@ -286,7 +288,7 @@ func TestRSI_GetOverboughtOversold(t *testing.T) {
 // Divergence detection
 // ---------------------------------------------------------------------------
 func TestRSI_Divergence_Bearish(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.RSIOverbought = 70
 	rsi, _ := NewRelativeStrengthIndexWithParams(5, cfg)
 
@@ -309,7 +311,7 @@ func TestRSI_Divergence_Bearish(t *testing.T) {
 }
 
 func TestRSI_Divergence_Bullish(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.RSIOversold = 30
 	rsi, _ := NewRelativeStrengthIndexWithParams(5, cfg)
 

@@ -1,7 +1,9 @@
-package indicator
+package momentum
 
 import (
 	"testing"
+
+	"github.com/evdnx/goti/config"
 )
 
 // -----------------------------------------------------------------------------
@@ -66,7 +68,7 @@ func BenchmarkADMO_DefaultConfig(b *testing.B) {
 // Benchmark with a *short* window (more reactive, more work per update)
 // -----------------------------------------------------------------------------
 func BenchmarkADMO_ShortWindow(b *testing.B) {
-	osc, _ := NewAdaptiveDEMAMomentumOscillatorWithParams(5, 5, 0.5, DefaultConfig())
+	osc, _ := NewAdaptiveDEMAMomentumOscillatorWithParams(5, 5, 0.5, config.DefaultConfig())
 	high, low, close := 10.0, 9.0, 9.5
 
 	b.ResetTimer()
@@ -80,7 +82,7 @@ func BenchmarkADMO_ShortWindow(b *testing.B) {
 // Benchmark with a *long* window (less frequent updates, larger slices)
 // -----------------------------------------------------------------------------
 func BenchmarkADMO_LongWindow(b *testing.B) {
-	osc, _ := NewAdaptiveDEMAMomentumOscillatorWithParams(100, 80, 0.2, DefaultConfig())
+	osc, _ := NewAdaptiveDEMAMomentumOscillatorWithParams(100, 80, 0.2, config.DefaultConfig())
 	high, low, close := 10.0, 9.0, 9.5
 
 	b.ResetTimer()

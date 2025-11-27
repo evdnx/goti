@@ -1,4 +1,4 @@
-package indicator
+package momentum
 
 import (
 	"errors"

@@ -1,10 +1,12 @@
-package indicator
+package trend
 
 import (
 	"errors"
 	"math"
 	"reflect"
 	"testing"
+
+	"github.com/evdnx/goti/indicator/core"
 )
 
 // ---------------------------------------------------------------------------
@@ -242,7 +244,7 @@ func TestHullMovingAverage_GetPlotData(t *testing.T) {
 		}
 	}
 	// Verify timestamps are correctly generated.
-	expTS := GenerateTimestamps(start, len(h.hmaValues), interval)
+	expTS := core.GenerateTimestamps(start, len(h.hmaValues), interval)
 	if !reflect.DeepEqual(data[0].Timestamp, expTS) {
 		t.Errorf("timestamps mismatch: got %v, want %v", data[0].Timestamp, expTS)
 	}

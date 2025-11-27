@@ -1,10 +1,13 @@
-package indicator
+package momentum
 
 import (
 	"errors"
 	"fmt"
 	"math"
 	"sync"
+
+	"github.com/evdnx/goti/config"
+	"github.com/evdnx/goti/indicator/core"
 )
 
 // -----------------------------------------------------------------------------
@@ -70,7 +73,7 @@ type AdaptiveDEMAMomentumOscillator struct {
 	length      int
 	stdevLength int
 	stdWeight   float64
-	config      IndicatorConfig
+	config      config.IndicatorConfig
 
 	// embedded mutex – no separate field needed
 	sync.RWMutex
@@ -92,14 +95,14 @@ type AdaptiveDEMAMomentumOscillator struct {
 // parameters (length=20, stdevLength=14, stdWeight=0.3).
 func NewAdaptiveDEMAMomentumOscillator() (*AdaptiveDEMAMomentumOscillator, error) {
 	return NewAdaptiveDEMAMomentumOscillatorWithParams(
-		DefaultLength, DefaultStdevLength, DefaultStdWeight, DefaultConfig(),
+		DefaultLength, DefaultStdevLength, DefaultStdWeight, config.DefaultConfig(),
 	)
 }
 
 // NewAdaptiveDEMAMomentumOscillatorWithParams validates the arguments and
 // builds a ready‑to‑use instance.
 func NewAdaptiveDEMAMomentumOscillatorWithParams(
-	length, stdevLength int, stdWeight float64, config IndicatorConfig,
+	length, stdevLength int, stdWeight float64, cfg config.IndicatorConfig,
 ) (*AdaptiveDEMAMomentumOscillator, error) {
 
 	if length < 1 || stdevLength < 1 {
@@ -113,7 +116,7 @@ func NewAdaptiveDEMAMomentumOscillatorWithParams(
 		length:      length,
 		stdevLength: stdevLength,
 		stdWeight:   stdWeight,
-		config:      config,
+		config:      cfg,
 
 		highs:      make([]float64, 0, maxCap),
 		lows:       make([]float64, 0, maxCap),
@@ -521,7 +524,7 @@ func (admo *AdaptiveDEMAMomentumOscillator) SetParameters(length, stdevLength in
 
 // GetPlotData builds the structures required for visualisation.
 // It returns nil when there is nothing to plot.
-func (admo *AdaptiveDEMAMomentumOscillator) GetPlotData(startTime, interval int64) []PlotData {
+func (admo *AdaptiveDEMAMomentumOscillator) GetPlotData(startTime, interval int64) []core.PlotData {
 	admo.RLock()
 	defer admo.RUnlock()
 
@@ -530,7 +533,7 @@ func (admo *AdaptiveDEMAMomentumOscillator) GetPlotData(startTime, interval int6
 	}
 	x := make([]float64, len(admo.amdoValues))
 	signals := make([]float64, len(admo.amdoValues))
-	timestamps := GenerateTimestamps(startTime, len(admo.amdoValues), interval)
+	timestamps := core.GenerateTimestamps(startTime, len(admo.amdoValues), interval)
 
 	for i := range admo.amdoValues {
 		x[i] = float64(i)
@@ -549,7 +552,7 @@ func (admo *AdaptiveDEMAMomentumOscillator) GetPlotData(startTime, interval int6
 		}
 	}
 
-	return []PlotData{
+	return []core.PlotData{
 		{
 			Name:      "Adaptive DEMA Momentum Oscillator",
 			X:         x,
@@ -571,26 +574,26 @@ func (admo *AdaptiveDEMAMomentumOscillator) GetPlotData(startTime, interval int6
 func (admo *AdaptiveDEMAMomentumOscillator) GetHighs() []float64 {
 	admo.RLock()
 	defer admo.RUnlock()
-	return copySlice(admo.highs)
+	return core.CopySlice(admo.highs)
 }
 
 // GetLows returns a copy of the stored low prices.
 func (admo *AdaptiveDEMAMomentumOscillator) GetLows() []float64 {
 	admo.RLock()
 	defer admo.RUnlock()
-	return copySlice(admo.lows)
+	return core.CopySlice(admo.lows)
 }
 
 // GetCloses returns a copy of the stored close prices.
 func (admo *AdaptiveDEMAMomentumOscillator) GetCloses() []float64 {
 	admo.RLock()
 	defer admo.RUnlock()
-	return copySlice(admo.closes)
+	return core.CopySlice(admo.closes)
 }
 
 // GetAMDOValues returns a copy of the computed ADMO values.
 func (admo *AdaptiveDEMAMomentumOscillator) GetAMDOValues() []float64 {
 	admo.RLock()
 	defer admo.RUnlock()
-	return copySlice(admo.amdoValues)
+	return core.CopySlice(admo.amdoValues)
 }

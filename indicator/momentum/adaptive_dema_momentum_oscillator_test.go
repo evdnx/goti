@@ -1,8 +1,10 @@
-package indicator
+package momentum
 
 import (
 	"math"
 	"testing"
+
+	"github.com/evdnx/goti/config"
 )
 
 // -----------------------------------------------------------------------------
@@ -93,11 +95,11 @@ func TestADMO_SinglePointCrossover(t *testing.T) {
 // Parameter‑validation tests
 // -----------------------------------------------------------------------------
 func TestADMO_InvalidParams(t *testing.T) {
-	_, err := NewAdaptiveDEMAMomentumOscillatorWithParams(0, 10, 0.3, DefaultConfig())
+	_, err := NewAdaptiveDEMAMomentumOscillatorWithParams(0, 10, 0.3, config.DefaultConfig())
 	if err == nil {
 		t.Fatalf("expected error for length=0")
 	}
-	_, err = NewAdaptiveDEMAMomentumOscillatorWithParams(10, -1, 0.3, DefaultConfig())
+	_, err = NewAdaptiveDEMAMomentumOscillatorWithParams(10, -1, 0.3, config.DefaultConfig())
 	if err == nil {
 		t.Fatalf("expected error for stdevLength<0")
 	}

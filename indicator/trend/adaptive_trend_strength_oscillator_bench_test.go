@@ -1,10 +1,13 @@
-package indicator
+package trend
 
 import (
 	"fmt"
 	"math/rand"
 	"testing"
 	"time"
+
+	"github.com/evdnx/goti/config"
+	"github.com/evdnx/goti/indicator/core"
 )
 
 /*
@@ -59,7 +62,7 @@ func generateOHLCSeries(n int) (highs, lows, closes []float64) {
 }
 
 func benchmarkATSOAdd(b *testing.B, minP, maxP, volP int, emaPeriod int) {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.ATSEMAperiod = emaPeriod
 	atso, err := NewAdaptiveTrendStrengthOscillatorWithParams(minP, maxP, volP, cfg)
 	if err != nil {
@@ -111,7 +114,7 @@ func BenchmarkATSO_MapVolatility(b *testing.B) {
 */
 
 func BenchmarkATSO_FullWorkflow(b *testing.B) {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.ATSEMAperiod = 10
 	atso, _ := NewAdaptiveTrendStrengthOscillatorWithParams(2, 14, 10, cfg)
 	highs, lows, closes := generateOHLCSeries(b.N)
@@ -150,7 +153,7 @@ func BenchmarkATSO_FullWorkflow(b *testing.B) {
 */
 
 func benchmarkATSOReset(b *testing.B, minP, maxP, volP, emaPeriod int) {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.ATSEMAperiod = emaPeriod
 	atso, err := NewAdaptiveTrendStrengthOscillatorWithParams(minP, maxP, volP, cfg)
 	if err != nil {
@@ -176,7 +179,7 @@ func BenchmarkATSO_Reset_MediumEMA(b *testing.B) { benchmarkATSOReset(b, 2, 5, 3
 func BenchmarkATSO_Reset_LargeEMA(b *testing.B)  { benchmarkATSOReset(b, 2, 5, 3, 50) }
 
 func benchmarkATSOGetPlotData(b *testing.B, points int) {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.ATSEMAperiod = 10
 	atso, _ := NewAdaptiveTrendStrengthOscillatorWithParams(2, 14, 10, cfg)
 
@@ -195,7 +198,7 @@ func BenchmarkATSO_GetPlotData_10k(b *testing.B)  { benchmarkATSOGetPlotData(b, 
 func BenchmarkATSO_GetPlotData_100k(b *testing.B) { benchmarkATSOGetPlotData(b, 100_000) }
 
 func benchmarkATSOReadSlices(b *testing.B, points int) {
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.ATSEMAperiod = 10
 	atso, _ := NewAdaptiveTrendStrengthOscillatorWithParams(2, 14, 10, cfg)
 
@@ -245,7 +248,7 @@ func benchmarkPlotDataJSON(b *testing.B, seriesCount int, pointsPerSeries int) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := FormatPlotDataJSON(data); err != nil {
+		if _, err := core.FormatPlotDataJSON(data); err != nil {
 			b.Fatalf("JSON format error: %v", err)
 		}
 	}
@@ -277,7 +280,7 @@ func benchmarkPlotDataCSV(b *testing.B, seriesCount int, pointsPerSeries int) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := FormatPlotDataCSV(data); err != nil {
+		if _, err := core.FormatPlotDataCSV(data); err != nil {
 			b.Fatalf("CSV format error: %v", err)
 		}
 	}
@@ -298,14 +301,14 @@ func BenchmarkGenerateTimestamps_1k(b *testing.B) {
 	start := time.Now().Unix()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = GenerateTimestamps(start, 1_000, 60)
+		_ = core.GenerateTimestamps(start, 1_000, 60)
 	}
 }
 func BenchmarkGenerateTimestamps_10k(b *testing.B) {
 	start := time.Now().Unix()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = GenerateTimestamps(start, 10_000, 60)
+		_ = core.GenerateTimestamps(start, 10_000, 60)
 	}
 }
 
@@ -320,7 +323,7 @@ func BenchmarkCalculateSlope(b *testing.B) {
 	y1, y2 := 123.456, 789.012
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateSlope(y2, y1)
+		_ = core.CalculateSlope(y2, y1)
 	}
 }
 
@@ -331,8 +334,8 @@ func BenchmarkCalculateSlope(b *testing.B) {
    consists mainly of `Calculate`.  This benchmark isolates that cost.
 */
 
-func benchmarkMovingAverageCalcOnly(b *testing.B, maType MovingAverageType, period int) {
-	ma, err := NewMovingAverage(maType, period)
+func benchmarkMovingAverageCalcOnly(b *testing.B, maType core.MovingAverageType, period int) {
+	ma, err := core.NewMovingAverage(maType, period)
 	if err != nil {
 		b.Fatalf("NewMovingAverage error: %v", err)
 	}
@@ -352,11 +355,11 @@ func benchmarkMovingAverageCalcOnly(b *testing.B, maType MovingAverageType, peri
 }
 
 func BenchmarkMovingAverage_CalcOnly_SMA_Small(b *testing.B) {
-	benchmarkMovingAverageCalcOnly(b, SMAMovingAverage, 5)
+	benchmarkMovingAverageCalcOnly(b, core.SMAMovingAverage, 5)
 }
 func BenchmarkMovingAverage_CalcOnly_EMA_Medium(b *testing.B) {
-	benchmarkMovingAverageCalcOnly(b, EMAMovingAverage, 20)
+	benchmarkMovingAverageCalcOnly(b, core.EMAMovingAverage, 20)
 }
 func BenchmarkMovingAverage_CalcOnly_WMA_Large(b *testing.B) {
-	benchmarkMovingAverageCalcOnly(b, WMAMovingAverage, 200)
+	benchmarkMovingAverageCalcOnly(b, core.WMAMovingAverage, 200)
 }

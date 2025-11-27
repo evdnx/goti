@@ -1,4 +1,4 @@
-package indicator
+package core
 
 import (
 	"encoding/json"
@@ -216,6 +216,11 @@ func copySlice(src []float64) []float64 {
 	dst := make([]float64, len(src))
 	copy(dst, src)
 	return dst
+}
+
+// CopySlice exposes the defensive copy helper to other packages.
+func CopySlice(src []float64) []float64 {
+	return copySlice(src)
 }
 
 /* -------------------------------------------------------------------------
