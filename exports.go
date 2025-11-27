@@ -47,6 +47,39 @@ func NewRelativeStrengthIndexWithParams(period int, cfg config.IndicatorConfig) 
 	return indicator.NewRelativeStrengthIndexWithParams(period, cfg)
 }
 
+// ---- MACD ----
+type MACD = indicator.MACD
+
+func NewMACD() (*indicator.MACD, error) {
+	return indicator.NewMACD()
+}
+
+func NewMACDWithParams(fastPeriod, slowPeriod, signalPeriod int) (*indicator.MACD, error) {
+	return indicator.NewMACDWithParams(fastPeriod, slowPeriod, signalPeriod)
+}
+
+// ---- Stochastic Oscillator ----
+type StochasticOscillator = indicator.StochasticOscillator
+
+func NewStochasticOscillator() (*indicator.StochasticOscillator, error) {
+	return indicator.NewStochasticOscillator()
+}
+
+func NewStochasticOscillatorWithParams(kPeriod, dPeriod int) (*indicator.StochasticOscillator, error) {
+	return indicator.NewStochasticOscillatorWithParams(kPeriod, dPeriod)
+}
+
+// ---- Commodity Channel Index ----
+type CommodityChannelIndex = indicator.CommodityChannelIndex
+
+func NewCommodityChannelIndex() (*indicator.CommodityChannelIndex, error) {
+	return indicator.NewCommodityChannelIndex()
+}
+
+func NewCommodityChannelIndexWithParams(period int) (*indicator.CommodityChannelIndex, error) {
+	return indicator.NewCommodityChannelIndexWithParams(period)
+}
+
 // ---- Money Flow Index ----
 type MoneyFlowIndex = indicator.MoneyFlowIndex
 
@@ -61,6 +94,13 @@ func NewMoneyFlowIndex() (*indicator.MoneyFlowIndex, error) {
 
 func NewMoneyFlowIndexWithParams(period int, cfg config.IndicatorConfig) (*indicator.MoneyFlowIndex, error) {
 	return indicator.NewMoneyFlowIndexWithParams(period, cfg)
+}
+
+// ---- VWAP ----
+type VWAP = indicator.VWAP
+
+func NewVWAP() *indicator.VWAP {
+	return indicator.NewVWAP()
 }
 
 // ---- Volume Weighted Aroon Oscillator ----
@@ -85,9 +125,21 @@ func NewHullMovingAverageWithParams(period int) (*indicator.HullMovingAverage, e
 	return indicator.NewHullMovingAverageWithParams(period)
 }
 
+// ---- Parabolic SAR ----
+type ParabolicSAR = indicator.ParabolicSAR
+
+func NewParabolicSAR() (*indicator.ParabolicSAR, error) {
+	return indicator.NewParabolicSAR()
+}
+
+func NewParabolicSARWithParams(step, maxStep float64) (*indicator.ParabolicSAR, error) {
+	return indicator.NewParabolicSARWithParams(step, maxStep)
+}
+
 // ---- Average True Range ----
 type AverageTrueRange = indicator.AverageTrueRange
 type ATROption = indicator.ATROption
+type BollingerBands = indicator.BollingerBands
 
 func WithCloseValidation(enabled bool) indicator.ATROption {
 	return indicator.WithCloseValidation(enabled)
@@ -99,6 +151,14 @@ func NewAverageTrueRange() (*indicator.AverageTrueRange, error) {
 
 func NewAverageTrueRangeWithParams(period int, opts ...indicator.ATROption) (*indicator.AverageTrueRange, error) {
 	return indicator.NewAverageTrueRangeWithParams(period, opts...)
+}
+
+func NewBollingerBands() (*indicator.BollingerBands, error) {
+	return indicator.NewBollingerBands()
+}
+
+func NewBollingerBandsWithParams(period int, multiplier float64) (*indicator.BollingerBands, error) {
+	return indicator.NewBollingerBandsWithParams(period, multiplier)
 }
 
 // ---- Adaptive DEMA Momentum Oscillator ----

@@ -59,6 +59,9 @@ func IsValidVolume(volume float64) bool     { return core.IsValidVolume(volume) 
 
 // ---- Momentum indicators ----
 type RelativeStrengthIndex = momentum.RelativeStrengthIndex
+type MACD = momentum.MACD
+type StochasticOscillator = momentum.StochasticOscillator
+type CommodityChannelIndex = momentum.CommodityChannelIndex
 
 func NewRelativeStrengthIndex() (*momentum.RelativeStrengthIndex, error) {
 	return momentum.NewRelativeStrengthIndex()
@@ -91,8 +94,33 @@ func NewAdaptiveDEMAMomentumOscillatorWithParams(length, stdevLength int, stdWei
 	return momentum.NewAdaptiveDEMAMomentumOscillatorWithParams(length, stdevLength, stdWeight, cfg)
 }
 
+func NewMACD() (*momentum.MACD, error) {
+	return momentum.NewMACD()
+}
+
+func NewMACDWithParams(fastPeriod, slowPeriod, signalPeriod int) (*momentum.MACD, error) {
+	return momentum.NewMACDWithParams(fastPeriod, slowPeriod, signalPeriod)
+}
+
+func NewStochasticOscillator() (*momentum.StochasticOscillator, error) {
+	return momentum.NewStochasticOscillator()
+}
+
+func NewStochasticOscillatorWithParams(kPeriod, dPeriod int) (*momentum.StochasticOscillator, error) {
+	return momentum.NewStochasticOscillatorWithParams(kPeriod, dPeriod)
+}
+
+func NewCommodityChannelIndex() (*momentum.CommodityChannelIndex, error) {
+	return momentum.NewCommodityChannelIndex()
+}
+
+func NewCommodityChannelIndexWithParams(period int) (*momentum.CommodityChannelIndex, error) {
+	return momentum.NewCommodityChannelIndexWithParams(period)
+}
+
 // ---- Trend indicators ----
 type HullMovingAverage = trend.HullMovingAverage
+type ParabolicSAR = trend.ParabolicSAR
 
 var (
 	ErrInvalidPrice          = trend.ErrInvalidPrice
@@ -128,8 +156,17 @@ func NewAdaptiveTrendStrengthOscillatorWithParams(shortPeriod, longPeriod, volat
 	return trend.NewAdaptiveTrendStrengthOscillatorWithParams(shortPeriod, longPeriod, volatilityPeriod, cfg)
 }
 
+func NewParabolicSAR() (*trend.ParabolicSAR, error) {
+	return trend.NewParabolicSAR()
+}
+
+func NewParabolicSARWithParams(step, maxStep float64) (*trend.ParabolicSAR, error) {
+	return trend.NewParabolicSARWithParams(step, maxStep)
+}
+
 // ---- Volume indicators ----
 type MoneyFlowIndex = volume.MoneyFlowIndex
+type VWAP = volume.VWAP
 
 var (
 	ErrNoMFIData            = volume.ErrNoMFIData
@@ -144,9 +181,14 @@ func NewMoneyFlowIndexWithParams(period int, cfg config.IndicatorConfig) (*volum
 	return volume.NewMoneyFlowIndexWithParams(period, cfg)
 }
 
+func NewVWAP() *volume.VWAP {
+	return volume.NewVWAP()
+}
+
 // ---- Volatility indicators ----
 type AverageTrueRange = volatility.AverageTrueRange
 type ATROption = volatility.ATROption
+type BollingerBands = volatility.BollingerBands
 
 func WithCloseValidation(enabled bool) volatility.ATROption {
 	return volatility.WithCloseValidation(enabled)
@@ -158,4 +200,12 @@ func NewAverageTrueRange() (*volatility.AverageTrueRange, error) {
 
 func NewAverageTrueRangeWithParams(period int, opts ...volatility.ATROption) (*volatility.AverageTrueRange, error) {
 	return volatility.NewAverageTrueRangeWithParams(period, opts...)
+}
+
+func NewBollingerBands() (*volatility.BollingerBands, error) {
+	return volatility.NewBollingerBands()
+}
+
+func NewBollingerBandsWithParams(period int, multiplier float64) (*volatility.BollingerBands, error) {
+	return volatility.NewBollingerBandsWithParams(period, multiplier)
 }
