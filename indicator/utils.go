@@ -1,4 +1,4 @@
-package goti
+package indicator
 
 import (
 	"encoding/json"
@@ -19,6 +19,11 @@ func keepLast[T any](s []T, n int) []T {
 		return s[len(s)-n:]
 	}
 	return s
+}
+
+// KeepLast is the exported wrapper for keepLast to share slice logic across packages.
+func KeepLast[T any](s []T, n int) []T {
+	return keepLast(s, n)
 }
 
 // -----------------------------------------------------------------------------
@@ -327,6 +332,15 @@ func isValidVolume(volume float64) bool {
 	return volume >= 0 && !math.IsNaN(volume) && !math.IsInf(volume, 0)
 }
 
+// IsValidPrice exposes the price validation helper.
+func IsValidPrice(price float64) bool { return isValidPrice(price) }
+
+// IsNonNegativePrice exposes the non-negative price validator.
+func IsNonNegativePrice(price float64) bool { return isNonNegativePrice(price) }
+
+// IsValidVolume exposes the volume validator.
+func IsValidVolume(volume float64) bool { return isValidVolume(volume) }
+
 /* -------------------------------------------------------------------------
    Timestamp / formatting utilities (unchanged)
 --------------------------------------------------------------------------*/
@@ -386,4 +400,29 @@ func FormatPlotDataCSV(data []PlotData) (string, error) {
 
 func calculateSlope(y2, y1 float64) float64 {
 	return y2 - y1
+}
+
+// Clamp exposes clamp to other packages.
+func Clamp(value, min, max float64) float64 {
+	return clamp(value, min, max)
+}
+
+// CalculateStandardDeviation exposes the standard-deviation helper.
+func CalculateStandardDeviation(data []float64, mean float64) float64 {
+	return calculateStandardDeviation(data, mean)
+}
+
+// CalculateSlope exposes the slope helper.
+func CalculateSlope(y2, y1 float64) float64 {
+	return calculateSlope(y2, y1)
+}
+
+// CalculateEMA exposes the EMA helper.
+func CalculateEMA(data []float64, period int, prevEMA float64) (float64, error) {
+	return calculateEMA(data, period, prevEMA)
+}
+
+// CalculateWMA exposes the WMA helper.
+func CalculateWMA(data []float64, period int) (float64, error) {
+	return calculateWMA(data, period)
 }

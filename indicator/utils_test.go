@@ -1,4 +1,4 @@
-package goti // same package as the library code
+package indicator // same package as the library code
 
 import (
 	"fmt"

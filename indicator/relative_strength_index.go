@@ -2,7 +2,7 @@
 // artifact_id: d1285cba-15ed-4b99-886d-5c0be17de312
 // artifact_version_id: 6e7f0a4c-9b6e-4d3c-8f5a-7c4e2d1b0e6f
 
-package goti
+package indicator
 
 import (
 	"errors"

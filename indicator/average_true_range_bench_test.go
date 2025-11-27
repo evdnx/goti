@@ -1,4 +1,4 @@
-package goti
+package indicator
 
 import (
 	"math/rand"

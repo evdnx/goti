@@ -11,6 +11,15 @@ All indicators share a common design philosophy:
 
 ---
 
+## **Package layout**
+
+- `github.com/evdnx/goti` – convenience façade that re-exports everything.
+- `github.com/evdnx/goti/config` – shared thresholds and validation helpers.
+- `github.com/evdnx/goti/indicator` – all indicator implementations, moving averages, and plotting utilities.
+- `github.com/evdnx/goti/suite` – combined signal engine built from the individual indicators.
+
+---
+
 ## **Table of Contents**
 
 1. Installation
@@ -34,10 +43,10 @@ All indicators share a common design philosophy:
 ## **Installation**
 
 ```go
-go get github.com/yourorg/goti
+go get github.com/evdnx/goti
 ```
 
-The package only depends on the Go standard library.
+The package only depends on the Go standard library. Use the top-level `goti` package for the façade, or import `indicator`, `config`, or `suite` directly when you want narrower dependencies.
 
 ---
 
@@ -218,7 +227,7 @@ package main
 
 import (
     "fmt"
-    "github.com/yourorg/goti"
+    "github.com/evdnx/goti"
 )
 
 func main() {

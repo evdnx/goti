@@ -1,7 +1,10 @@
-package goti
+package suite
 
 import (
 	"fmt"
+
+	"github.com/evdnx/goti/config"
+	"github.com/evdnx/goti/indicator"
 )
 
 // ---------------------------------------------------------------------
@@ -9,17 +12,17 @@ import (
 // ---------------------------------------------------------------------
 
 type IndicatorSuite struct {
-	rsi  *RelativeStrengthIndex
-	mfi  *MoneyFlowIndex
-	vwao *VolumeWeightedAroonOscillator
-	hma  *HullMovingAverage
-	amdo *AdaptiveDEMAMomentumOscillator
-	atso *AdaptiveTrendStrengthOscillator
+	rsi  *indicator.RelativeStrengthIndex
+	mfi  *indicator.MoneyFlowIndex
+	vwao *indicator.VolumeWeightedAroonOscillator
+	hma  *indicator.HullMovingAverage
+	amdo *indicator.AdaptiveDEMAMomentumOscillator
+	atso *indicator.AdaptiveTrendStrengthOscillator
 }
 
 // NewIndicatorSuite creates a suite with the library defaults.
 func NewIndicatorSuite() (*IndicatorSuite, error) {
-	return NewIndicatorSuiteWithConfig(DefaultConfig())
+	return NewIndicatorSuiteWithConfig(config.DefaultConfig())
 }
 
 /* --------------------------------------------------------------------- *
@@ -29,15 +32,15 @@ func NewIndicatorSuite() (*IndicatorSuite, error) {
  * the synthetic test data used in the unit‑tests can trigger bullish
  * crossovers.
  * --------------------------------------------------------------------- */
-func NewIndicatorSuiteWithConfig(config IndicatorConfig) (*IndicatorSuite, error) {
+func NewIndicatorSuiteWithConfig(cfg config.IndicatorConfig) (*IndicatorSuite, error) {
 	/* -------------------- RSI -------------------- */
-	rsi, err := NewRelativeStrengthIndexWithParams(5, config)
+	rsi, err := indicator.NewRelativeStrengthIndexWithParams(5, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create RSI: %w", err)
 	}
 
 	/* -------------------- MFI -------------------- */
-	mfi, err := NewMoneyFlowIndexWithParams(5, config)
+	mfi, err := indicator.NewMoneyFlowIndexWithParams(5, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MFI: %w", err)
 	}
@@ -45,7 +48,7 @@ func NewIndicatorSuiteWithConfig(config IndicatorConfig) (*IndicatorSuite, error
 	//mfi.config.MFIOversold = 0 // default is 20
 
 	/* -------------------- VWAO ------------------- */
-	vwao, err := NewVolumeWeightedAroonOscillatorWithParams(14, config)
+	vwao, err := indicator.NewVolumeWeightedAroonOscillatorWithParams(14, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VWAO: %w", err)
 	}
@@ -54,19 +57,19 @@ func NewIndicatorSuiteWithConfig(config IndicatorConfig) (*IndicatorSuite, error
 
 	/* -------------------- HMA -------------------- */
 	// Use a shorter period so the HMA reacts quickly enough for the test.
-	hma, err := NewHullMovingAverageWithParams(9) // was 9
+	hma, err := indicator.NewHullMovingAverageWithParams(9) // was 9
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HMA: %w", err)
 	}
 
 	/* -------------------- AMDO ------------------- */
-	amdo, err := NewAdaptiveDEMAMomentumOscillatorWithParams(20, 14, 0.3, config)
+	amdo, err := indicator.NewAdaptiveDEMAMomentumOscillatorWithParams(20, 14, 0.3, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AMDO: %w", err)
 	}
 
 	/* -------------------- ATSO ------------------- */
-	atso, err := NewAdaptiveTrendStrengthOscillatorWithParams(2, 14, 14, config)
+	atso, err := indicator.NewAdaptiveTrendStrengthOscillatorWithParams(2, 14, 14, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ATSO: %w", err)
 	}
@@ -85,7 +88,7 @@ func NewIndicatorSuiteWithConfig(config IndicatorConfig) (*IndicatorSuite, error
 // Add – forwards the OHLCV sample to every indicator.
 // ---------------------------------------------------------------------
 func (suite *IndicatorSuite) Add(high, low, close, volume float64) error {
-	if high < low || !isNonNegativePrice(close) || !isValidVolume(volume) {
+	if high < low || !indicator.IsNonNegativePrice(close) || !indicator.IsValidVolume(volume) {
 		return fmt.Errorf("invalid price or volume")
 	}
 	if err := suite.rsi.Add(close); err != nil {
@@ -301,38 +304,38 @@ func (suite *IndicatorSuite) Reset() {
 }
 
 // GetRSI returns the RSI indicator
-func (suite *IndicatorSuite) GetRSI() *RelativeStrengthIndex {
+func (suite *IndicatorSuite) GetRSI() *indicator.RelativeStrengthIndex {
 	return suite.rsi
 }
 
 // GetMFI returns the MFI indicator
-func (suite *IndicatorSuite) GetMFI() *MoneyFlowIndex {
+func (suite *IndicatorSuite) GetMFI() *indicator.MoneyFlowIndex {
 	return suite.mfi
 }
 
 // GetVWAO returns the VWAO indicator
-func (suite *IndicatorSuite) GetVWAO() *VolumeWeightedAroonOscillator {
+func (suite *IndicatorSuite) GetVWAO() *indicator.VolumeWeightedAroonOscillator {
 	return suite.vwao
 }
 
 // GetHMA returns the HMA indicator
-func (suite *IndicatorSuite) GetHMA() *HullMovingAverage {
+func (suite *IndicatorSuite) GetHMA() *indicator.HullMovingAverage {
 	return suite.hma
 }
 
 // GetAMDO returns the AMDO indicator
-func (suite *IndicatorSuite) GetAMDO() *AdaptiveDEMAMomentumOscillator {
+func (suite *IndicatorSuite) GetAMDO() *indicator.AdaptiveDEMAMomentumOscillator {
 	return suite.amdo
 }
 
 // GetATSO returns the ATSO indicator
-func (suite *IndicatorSuite) GetATSO() *AdaptiveTrendStrengthOscillator {
+func (suite *IndicatorSuite) GetATSO() *indicator.AdaptiveTrendStrengthOscillator {
 	return suite.atso
 }
 
 // GetPlotData returns combined plot data from all indicators
-func (suite *IndicatorSuite) GetPlotData(startTime, interval int64) []PlotData {
-	var plotData []PlotData
+func (suite *IndicatorSuite) GetPlotData(startTime, interval int64) []indicator.PlotData {
+	var plotData []indicator.PlotData
 	mfi, _ := suite.mfi.GetPlotData()
 	plotData = append(plotData, suite.rsi.GetPlotData(startTime, interval)...)
 	plotData = append(plotData, mfi...)

@@ -1,8 +1,8 @@
-package goti
+package indicator
 
 import "github.com/evdnx/goti/config"
 
-// Re-export configuration so callers can keep using the top-level package.
+// Re-export config defaults and types so existing indicator code can stay lean.
 type IndicatorConfig = config.IndicatorConfig
 
 const (
