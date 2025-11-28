@@ -26,12 +26,18 @@ All indicators share a common design philosophy:
 2. Configuration
 3. Indicators
    - Relative Strength Index (RSI)
-   - Money Flow Index (MFI)
-   - Volume‑Weighted Aroon Oscillator (VWAO)
+   - Stochastic Oscillator
+   - Moving Average Convergence Divergence (MACD)
+   - Commodity Channel Index (CCI)
    - Hull Moving Average (HMA)
+   - Parabolic SAR
+   - Bollinger Bands
    - Average True Range (ATR)
+   - Volume Weighted Average Price (VWAP)
+   - Money Flow Index (MFI)
    - Adaptive DEMA (Double Exponential Moving Average) Momentum Oscillator (ADMO)
    - Adaptive Trend Strength Oscillator (ATSO)
+   - Volume‑Weighted Aroon Oscillator (VWAO)
 4. Indicator Suite
 5. Utility Functions
 6. Testing & Benchmarking
@@ -87,11 +93,31 @@ value, err := ind.Calculate()
 bull, err := ind.IsBullishCrossover()
 ```
 
+Core set (used by the scalping suite): RSI, Stochastic Oscillator, MACD, CCI, HMA, Parabolic SAR, Bollinger Bands, ATR, VWAP, and MFI. Legacy indicators such as ADMO, ATSO, and VWAO remain available for broader strategies.
+
 ### **Relative Strength Index (RSI)**
 
 - **Package:** `relative_strength_index.go`
 - **Default period:** 5
 - **Key methods:** `Add`, `Calculate`, `IsBullishCrossover`, `IsBearishCrossover`, `IsDivergence`, `GetPlotData`
+
+### **Stochastic Oscillator**
+
+- **Package:** `stochastic_oscillator.go`
+- **Default periods:** %K=14, %D=3 (suite uses a shorter 9/3 for scalping)
+- **Key methods:** `Add`, `Calculate`, `IsOverbought`, `IsOversold`, `GetPlotData`
+
+### **Moving Average Convergence Divergence (MACD)**
+
+- **Package:** `macd.go`
+- **Default periods:** 12/26/9 (suite uses 5/13/4 for faster turns)
+- **Key methods:** `Add`, `Calculate`, `GetMACDValues`, `GetSignalValues`, `GetHistogramValues`, `GetPlotData`
+
+### **Commodity Channel Index (CCI)**
+
+- **Package:** `commodity_channel_index.go`
+- **Default period:** 20 (suite uses 10)
+- **Key methods:** `Add`, `Calculate`, `IsOverbought`, `IsOversold`, `GetPlotData`
 
 ### **Money Flow Index (MFI)**
 
@@ -111,11 +137,28 @@ bull, err := ind.IsBullishCrossover()
 - **Default period:** 9
 - **Crossover helpers** (`IsBullishCrossover`, `IsBearishCrossover`) and trend detection (`GetTrendDirection`).
 
+### **Parabolic SAR**
+
+- **Package:** `parabolic_sar.go`
+- **Default step/max:** 0.02 / 0.2
+- **Key methods:** `Add`, `Calculate`, `IsUptrend`, `GetPlotData`
+
+### **Bollinger Bands**
+
+- **Package:** `bollinger_bands.go`
+- **Default period/multiplier:** 20 / 2
+- **Key methods:** `Add`, `Calculate`, `GetPlotData`
+
 ### **Average True Range (ATR)**
 
 - **Package:** `average_true_range.go`
 - **Default period:** 14
 - **Functional option:** `WithCloseValidation(bool)` to disable the “close must lie between high/low” check.
+
+### **Volume Weighted Average Price (VWAP)**
+
+- **Package:** `vwap.go`
+- **Key methods:** `Add`, `Calculate`, `GetPlotData`
 
 ### **Adaptive DEMA (Double Exponential Moving Average) Momentum Oscillator (ADMO)**
 
@@ -135,19 +178,20 @@ bull, err := ind.IsBullishCrossover()
 
 ## **Indicator Suite**
 
-`IndicatorSuite` aggregates all six indicators and provides a weighted‑signal engine.
+`ScalpingIndicatorSuite` aggregates the scalping-focused stack (RSI, Stochastic, MACD, CCI, HMA, Parabolic SAR, Bollinger Bands, ATR, VWAP, MFI) and provides a weighted engine tuned for fast reversals and intraday follow-through. The legacy `NewIndicatorSuite*` helpers are preserved as aliases.
 
 ```go
-suite, err := goti.NewIndicatorSuiteWithConfig(cfg)
-suite.Add(high, low, close, volume) // feeds every sub‑indicator
-signal, err := suite.GetCombinedSignal() // “Strong Bullish”, “Neutral”, etc.
+suite, err := goti.NewScalpingIndicatorSuite()
+suite.Add(high, low, close, volume) // feeds every sub-indicator
+signal, err := suite.GetCombinedSignal() // “Strong Bullish”, “Weak Bearish”, etc.
 ```
 
 The suite also offers:
 
 - `GetCombinedBearishSignal()`
-- `GetDivergenceSignals()` – returns a map of indicator‑specific divergences.
+- `GetDivergenceSignals()` – currently RSI/MFI divergence hooks.
 - `Reset()` – clears every sub‑indicator while preserving the config.
+- `GetPlotData()` – collates plot series for every indicator (including ATR/VWAP).
 
 ---
 
@@ -235,7 +279,7 @@ func main() {
     cfg := goti.DefaultConfig()
     cfg.RSIOverbought = 80
     cfg.RSIOversold = 20
-    suite, _ := goti.NewIndicatorSuiteWithConfig(cfg)
+    suite, _ := goti.NewScalpingIndicatorSuiteWithConfig(cfg)
 
     // Simulate a stream of OHLCV data.
     data := []struct{ h, l, c, v float64 }{

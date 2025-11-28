@@ -5,74 +5,68 @@ import (
 	"testing"
 )
 
-func TestIndicatorSuite(t *testing.T) {
-	// Test initialization
-	config := DefaultConfig()
-	suite, err := NewIndicatorSuiteWithConfig(config)
+func TestScalpingIndicatorSuite(t *testing.T) {
+	cfg := DefaultConfig()
+	suite, err := NewScalpingIndicatorSuiteWithConfig(cfg)
 	if err != nil {
-		t.Fatalf("NewIndicatorSuiteWithConfig failed: %v", err)
+		t.Fatalf("NewScalpingIndicatorSuiteWithConfig failed: %v", err)
 	}
 
-	// Test adding invalid data
-	err = suite.Add(100, 101, 100, 1000)
-	if err == nil || !strings.Contains(err.Error(), "invalid price") {
-		t.Errorf("Expected error containing 'invalid price', got: %v", err)
-	}
-
-	// Test combined signal (bullish)
-	for i := 0; i < 45; i++ {
-		high := float64(10000 - i*100 + 1)
-		low := float64(10000 - i*100 - 1)
-		close := float64(10000 - i*100)
-		volume := 1000000.0
-		err := suite.Add(high, low, close, volume)
-		if err != nil {
-			t.Errorf("Add failed at index %d: %v", i, err)
+	t.Run("invalid add is rejected", func(t *testing.T) {
+		err := suite.Add(100, 101, 100, 1000) // high < low
+		if err == nil || !strings.Contains(err.Error(), "invalid price") {
+			t.Fatalf("expected validation error, got %v", err)
 		}
-	}
-	suite.Add(101, 99, 100, 1000000)
-	suite.Add(301, 299, 300, 1000000)
-	suite.Add(601, 599, 600, 1000000)
-	suite.Add(1001, 999, 1000, 1000000)
-	suite.Add(1501, 1499, 1500, 1000000)
-	rsiBullish, _ := suite.GetRSI().IsBullishCrossover()
-	mfiBullish, _ := suite.GetMFI().IsBullishCrossover()
-	vwaoBullish, _ := suite.GetVWAO().IsBullishCrossover()
-	hmaBullish, _ := suite.GetHMA().IsBullishCrossover()
-	amdoBullish, _ := suite.GetAMDO().IsBullishCrossover()
-	atsoBullish := suite.GetATSO().IsBullishCrossover()
-	t.Logf("RSI: %v, MFI: %v, VWAO: %v, HMA: %v, AMDO: %v, ATSO: %v", rsiBullish, mfiBullish, vwaoBullish, hmaBullish, amdoBullish, atsoBullish)
-	signal, err := suite.GetCombinedSignal()
-	if err != nil {
-		t.Errorf("GetCombinedSignal failed: %v", err)
-	}
-	if signal != "Strong Bullish" {
-		t.Errorf("Expected Strong Bullish signal, got: %s", signal)
-	}
+	})
 
-	// Test combined signal (neutral)
-	suite.Reset()
-	for i := 0; i < 50; i++ {
-		high := float64(100 + i*20 + 1)
-		low := float64(100 + i*20 - 1)
-		close := float64(100 + i*20)
-		volume := 1000000.0
-		err := suite.Add(high, low, close, volume)
-		if err != nil {
-			t.Errorf("Add failed at index %d: %v", i, err)
+	t.Run("bullish bias after recovery", func(t *testing.T) {
+		suite.Reset()
+		price := 200.0
+		// Dip first to prime oversold conditions.
+		for i := 0; i < 15; i++ {
+			price -= 1.5
+			if err := suite.Add(price+1, price-1, price, 5000+float64(i)*50); err != nil {
+				t.Fatalf("add during dip failed at %d: %v", i, err)
+			}
 		}
-	}
-	signal, err = suite.GetCombinedSignal()
-	if err != nil {
-		t.Errorf("GetCombinedSignal failed: %v", err)
-	}
-	if signal != "Neutral" {
-		t.Errorf("Expected Neutral signal, got: %s", signal)
-	}
+		// Then drive a fast rebound to trigger low-lag crossovers.
+		for i := 0; i < 40; i++ {
+			price += 2.5
+			if err := suite.Add(price+1.2, price-1.2, price, 9000+float64(i)*80); err != nil {
+				t.Fatalf("add during rebound failed at %d: %v", i, err)
+			}
+		}
 
-	// Test plot data
-	plotData := suite.GetPlotData(1625097600000, 86400000)
-	if len(plotData) == 0 {
-		t.Error("Expected non-empty plot data")
-	}
+		signal, err := suite.GetCombinedSignal()
+		if err != nil {
+			t.Fatalf("GetCombinedSignal failed: %v", err)
+		}
+		if !strings.Contains(signal, "Bullish") {
+			t.Fatalf("expected bullish signal, got %s", signal)
+		}
+
+		plotData := suite.GetPlotData(1625097600000, 60_000)
+		if len(plotData) == 0 {
+			t.Fatal("expected non-empty plot data")
+		}
+	})
+
+	t.Run("bearish bias on sustained drop", func(t *testing.T) {
+		suite.Reset()
+		price := 420.0
+		for i := 0; i < 60; i++ {
+			price -= 2.0
+			if err := suite.Add(price+1.5, price-1.5, price, 8000+float64(i)*30); err != nil {
+				t.Fatalf("add during selloff failed at %d: %v", i, err)
+			}
+		}
+
+		signal, err := suite.GetCombinedSignal()
+		if err != nil {
+			t.Fatalf("GetCombinedSignal failed: %v", err)
+		}
+		if !strings.Contains(signal, "Bearish") {
+			t.Fatalf("expected bearish signal, got %s", signal)
+		}
+	})
 }
