@@ -110,12 +110,17 @@ func NewScalpingIndicatorSuiteWithConfig(cfg config.IndicatorConfig) (*ScalpingI
 
 // Add forwards the OHLCV sample to every indicator in the suite.
 func (suite *ScalpingIndicatorSuite) Add(high, low, close, volume float64) error {
-	if high < low ||
-		!indicator.IsValidPrice(high) ||
-		!indicator.IsValidPrice(low) ||
-		!indicator.IsNonNegativePrice(close) ||
-		!indicator.IsValidVolume(volume) {
-		return fmt.Errorf("invalid price or volume")
+	if high < low {
+		return fmt.Errorf("invalid price: high (%v) must be >= low (%v)", high, low)
+	}
+	if !indicator.IsValidPrice(high) || !indicator.IsValidPrice(low) {
+		return fmt.Errorf("invalid price")
+	}
+	if !indicator.IsNonNegativePrice(close) {
+		return fmt.Errorf("invalid price")
+	}
+	if !indicator.IsValidVolume(volume) {
+		return fmt.Errorf("invalid volume")
 	}
 
 	if err := suite.rsi.Add(close); err != nil {
