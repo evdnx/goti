@@ -137,9 +137,9 @@ func (b *BollingerBands) GetPlotData(startTime, interval int64) []core.PlotData 
 	ts := core.GenerateTimestamps(startTime, len(b.upper), interval)
 
 	return []core.PlotData{
-		{Name: "Bollinger Upper", X: x, Y: b.upper, Type: "line", Timestamp: ts},
-		{Name: "Bollinger Middle", X: x, Y: b.middle, Type: "line", Timestamp: ts},
-		{Name: "Bollinger Lower", X: x, Y: b.lower, Type: "line", Timestamp: ts},
+		{Name: "Bollinger Upper", X: x, Y: core.CopySlice(b.upper), Type: "line", Timestamp: ts},
+		{Name: "Bollinger Middle", X: x, Y: core.CopySlice(b.middle), Type: "line", Timestamp: ts},
+		{Name: "Bollinger Lower", X: x, Y: core.CopySlice(b.lower), Type: "line", Timestamp: ts},
 	}
 }
 
