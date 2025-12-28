@@ -202,9 +202,7 @@ func (mfi *MoneyFlowIndex) IsBullishCrossover() (bool, error) {
 
 	prev := 0.0
 	if len(mfi.mfiValues) >= 2 {
-
 		prev = mfi.mfiValues[len(mfi.mfiValues)-2]
-
 	}
 
 	return prev < mfi.config.MFIOversold && cur > mfi.config.MFIOversold, nil
@@ -354,7 +352,7 @@ func (mfi *MoneyFlowIndex) GetPlotData() ([]core.PlotData, error) {
 		// Determine crossover signals first.
 		if i > 0 {
 			prev := mfi.mfiValues[i-1]
-			if prev <= mfi.config.MFIOversold && v > mfi.config.MFIOversold {
+			if prev < mfi.config.MFIOversold && v > mfi.config.MFIOversold {
 				signals[i] = 1 // bullish
 			} else if prev >= mfi.config.MFIOverbought && v < mfi.config.MFIOverbought {
 				signals[i] = -1 // bearish
