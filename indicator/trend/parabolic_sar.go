@@ -58,8 +58,11 @@ func NewParabolicSARWithParams(step, maxStep float64) (*ParabolicSAR, error) {
 // Add appends a new candle (high/low). SAR values are produced once at least
 // two candles have been seen.
 func (p *ParabolicSAR) Add(high, low float64) error {
-	if high < low || !core.IsNonNegativePrice(high) || !core.IsNonNegativePrice(low) {
-		return errors.New("invalid price data")
+	if high < low {
+		return errors.New("invalid price: high < low")
+	}
+	if !core.IsValidPrice(high) || !core.IsValidPrice(low) {
+		return errors.New("invalid price: all prices must be positive")
 	}
 	p.highs = append(p.highs, high)
 	p.lows = append(p.lows, low)

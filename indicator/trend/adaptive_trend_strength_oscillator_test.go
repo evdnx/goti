@@ -51,9 +51,10 @@ func TestATSO_BullishTrend(t *testing.T) {
 func TestATSO_BearishTrend(t *testing.T) {
 	atso := newTestATSO(t)
 
-	high := 20.0
-	low := 19.0
-	close := 19.5
+	// Start high enough so prices stay positive throughout the loop
+	high := 100.0
+	low := 99.0
+	close := 99.5
 	for i := 0; i < 20; i++ {
 		if err := atso.Add(high, low, close); err != nil {
 			t.Fatalf("Add error at iteration %d: %v", i, err)

@@ -47,11 +47,17 @@ func NewVolumeWeightedAroonOscillatorWithParams(period int, cfg config.Indicator
 }
 
 // Add inserts a new candle (high, low, close) together with its volume.
-// Validation mirrors the rest of the library: prices must be non‑negative,
+// Validation mirrors the rest of the library: prices must be positive,
 // high ≥ low, and volume must be a valid number.
 func (v *VolumeWeightedAroonOscillator) Add(high, low, close, volume float64) error {
-	if high < low || !core.IsNonNegativePrice(close) || !core.IsValidVolume(volume) {
-		return errors.New("invalid price or volume")
+	if high < low {
+		return errors.New("invalid price: high < low")
+	}
+	if !core.IsValidPrice(high) || !core.IsValidPrice(low) || !core.IsValidPrice(close) {
+		return errors.New("invalid price: all prices must be positive")
+	}
+	if !core.IsValidVolume(volume) {
+		return errors.New("invalid volume")
 	}
 	v.highs = append(v.highs, high)
 	v.lows = append(v.lows, low)

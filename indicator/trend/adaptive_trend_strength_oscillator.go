@@ -80,8 +80,10 @@ func (atso *AdaptiveTrendStrengthOscillator) Add(high, low, close float64) error
 		// The tests expect an error when the high price is lower than the low price.
 		return fmt.Errorf("high (%v) is lower than low (%v)", high, low)
 	}
-	if !core.IsNonNegativePrice(close) {
-		return errors.New("invalid close price")
+	// Validate all prices: high, low, and close must be positive (> 0) since
+	// computeVolatility uses log-returns which require division by close prices.
+	if !core.IsValidPrice(high) || !core.IsValidPrice(low) || !core.IsValidPrice(close) {
+		return errors.New("invalid price: all prices must be positive")
 	}
 
 	// ----- 2️⃣  Store the raw OHLC data ---------------------------------------
