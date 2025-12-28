@@ -456,7 +456,7 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsDivergence() (bool, string) {
 	admo.RLock()
 	defer admo.RUnlock()
 
-	if len(admo.amdoValues) == 0 || len(admo.closes) == 0 {
+	if len(admo.amdoValues) == 0 || len(admo.closes) < 2 {
 		return false, ""
 	}
 
