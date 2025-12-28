@@ -51,16 +51,16 @@ func TestHullMovingAverage_AddAndCalculate_Period3(t *testing.T) {
 	}
 
 	/*
-	   With the library’s WMA implementation the most recent price receives
-	   the highest weight.  Therefore:
+	   With standard WMA the most recent price receives the highest weight.
+	   Therefore for prices [10, 20, 30] with period 3:
 
-	     wmaFull = (10*3 + 20*2 + 30*1) / (3+2+1) = 100 / 6 ≈ 16.666667
+	     wmaFull = (10*1 + 20*2 + 30*3) / (1+2+3) = 140 / 6 ≈ 23.333333
 	     wmaHalf = last 1 price = 30
-	     rawHMA = 2*wmaHalf - wmaFull = 60 - 16.666667 = 43.333333
+	     rawHMA = 2*wmaHalf - wmaFull = 60 - 23.333333 = 36.666667
 
 	   Since sqrt(period)=1, the final HMA equals rawHMA.
 	*/
-	expected := 43.3333333333
+	expected := 36.6666666667
 
 	val, err := h.Calculate()
 	if err != nil {

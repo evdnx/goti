@@ -216,8 +216,9 @@ func TestWeightedMovingAverage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Calculate error: %v", err)
 	}
-	// Expected WMA: (3*3 + 4*2 + 5*1) / (3+2+1) = 22/6 = 3.666…
-	expected := 22.0 / 6.0
+	// Expected WMA: (3*1 + 4*2 + 5*3) / (1+2+3) = 26/6 ≈ 4.333…
+	// (Standard WMA gives highest weight to the most recent value)
+	expected := 26.0 / 6.0
 	if math.Abs(got-expected) > 1e-9 {
 		t.Fatalf("WMA expected %v, got %v", expected, got)
 	}

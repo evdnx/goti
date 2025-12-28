@@ -305,13 +305,14 @@ func calculateEMA(data []float64, period int, prevEMA float64) (float64, error) 
 }
 
 // calculateWMA computes the Weighted Moving Average.
+// The most recent value receives the highest weight (standard WMA definition).
 func calculateWMA(data []float64, period int) (float64, error) {
 	if len(data) < period {
 		return 0, fmt.Errorf("insufficient data for WMA: need %d, have %d", period, len(data))
 	}
 	sum, weightSum := 0.0, 0.0
 	for i := 0; i < period; i++ {
-		weight := float64(period - i)
+		weight := float64(i + 1) // weight increases: 1, 2, ..., period (newest gets highest)
 		sum += data[len(data)-period+i] * weight
 		weightSum += weight
 	}
