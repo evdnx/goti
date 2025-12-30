@@ -93,7 +93,7 @@ value, err := ind.Calculate()
 bull, err := ind.IsBullishCrossover()
 ```
 
-Core set (used by the scalping suite): RSI, Stochastic Oscillator, MACD, CCI, HMA, Parabolic SAR, Bollinger Bands, ATR, VWAP, and MFI. Legacy indicators such as ADMO, ATSO, and VWAO remain available for broader strategies.
+Core set (used by the scalping suite): Adaptive DEMA Momentum Oscillator (ADMO), Volume Weighted Aroon Oscillator (VWAO), MACD, HMA, Parabolic SAR, Bollinger Bands, ATR, VWAP, and MFI. The suite uses adaptive indicators that adjust to volatility regimes for better scalping performance.
 
 ### **Relative Strength Index (RSI)**
 
@@ -178,7 +178,7 @@ Core set (used by the scalping suite): RSI, Stochastic Oscillator, MACD, CCI, HM
 
 ## **Indicator Suite**
 
-`ScalpingIndicatorSuite` aggregates the scalping-focused stack (RSI, Stochastic, MACD, CCI, HMA, Parabolic SAR, Bollinger Bands, ATR, VWAP, MFI) and provides a weighted engine tuned for fast reversals and intraday follow-through. The legacy `NewIndicatorSuite*` helpers are preserved as aliases.
+`ScalpingIndicatorSuite` aggregates the scalping-focused stack (Adaptive DEMA Momentum Oscillator, Volume Weighted Aroon Oscillator, MACD, HMA, Parabolic SAR, Bollinger Bands, ATR, VWAP, MFI) and provides a weighted engine tuned for fast reversals and intraday follow-through. The suite uses adaptive indicators that automatically adjust to volatility changes, making it more responsive to market conditions than fixed-period indicators. The legacy `NewIndicatorSuite*` helpers are preserved as aliases.
 
 ```go
 suite, err := goti.NewScalpingIndicatorSuite()
@@ -189,7 +189,7 @@ signal, err := suite.GetCombinedSignal() // “Strong Bullish”, “Weak Bearis
 The suite also offers:
 
 - `GetCombinedBearishSignal()`
-- `GetDivergenceSignals()` – currently RSI/MFI divergence hooks.
+- `GetDivergenceSignals()` – ADMO, VWAO, and MFI divergence detection.
 - `Reset()` – clears every sub‑indicator while preserving the config.
 - `GetPlotData()` – collates plot series for every indicator (including ATR/VWAP).
 

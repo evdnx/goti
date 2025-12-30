@@ -13,16 +13,15 @@ import (
 // signal gating based on volatility regimes.
 // ---------------------------------------------------------------------
 type ScalpingIndicatorSuite struct {
-	rsi        *indicator.RelativeStrengthIndex
-	stochastic *indicator.StochasticOscillator
-	macd       *indicator.MACD
-	cci        *indicator.CommodityChannelIndex
-	hma        *indicator.HullMovingAverage
-	sar        *indicator.ParabolicSAR
-	bollinger  *indicator.BollingerBands
-	atr        *indicator.AverageTrueRange
-	vwap       *indicator.VWAP
-	mfi        *indicator.MoneyFlowIndex
+	admo      *indicator.AdaptiveDEMAMomentumOscillator
+	vwao      *indicator.VolumeWeightedAroonOscillator
+	macd      *indicator.MACD
+	hma       *indicator.HullMovingAverage
+	sar       *indicator.ParabolicSAR
+	bollinger *indicator.BollingerBands
+	atr       *indicator.AverageTrueRange
+	vwap      *indicator.VWAP
+	mfi       *indicator.MoneyFlowIndex
 
 	lastClose  float64
 	prevClose  float64
@@ -42,10 +41,9 @@ func NewScalpingIndicatorSuite() (*ScalpingIndicatorSuite, error) {
 // short, responsive periods suitable for 1–5 minute charts.
 //
 // Period rationale for scalping:
-//   - RSI(5): Faster than default 14, captures micro-reversals
-//   - Stochastic(7,3): Quick K with smooth D for crossover signals
+//   - ADMO(8,5,0.3): Adaptive momentum oscillator that adjusts to volatility
+//   - VWAO(7): Volume-weighted Aroon for trend strength with volume confirmation
 //   - MACD(5,12,4): Tight fast/slow spread with responsive signal line
-//   - CCI(8): Short cycle detection for overbought/oversold extremes
 //   - HMA(6): Ultra-low lag trend following
 //   - SAR(0.02,0.2): Standard acceleration for stop placement
 //   - Bollinger(12,2.0): Shorter lookback for volatility squeeze detection
@@ -53,37 +51,34 @@ func NewScalpingIndicatorSuite() (*ScalpingIndicatorSuite, error) {
 //   - MFI(5): Quick volume-backed momentum
 func NewScalpingIndicatorSuiteWithConfig(cfg config.IndicatorConfig) (*ScalpingIndicatorSuite, error) {
 	// Tighten thresholds for faster reversals (asymmetric for mean-reversion).
-	cfg.RSIOverbought = 65
-	cfg.RSIOversold = 35
 	cfg.MFIOverbought = 72
 	cfg.MFIOversold = 28
+	// ADMO thresholds: slightly tighter for scalping
+	cfg.AMDOOverbought = 0.8
+	cfg.AMDOOversold = -0.8
+	// VWAO strong trend threshold: tighter for scalping
+	cfg.VWAOStrongTrend = 60
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	// RSI: 5-period for rapid momentum shifts
-	rsi, err := indicator.NewRelativeStrengthIndexWithParams(5, cfg)
+	// ADMO: 8/5/0.3 for adaptive momentum that responds to volatility changes
+	admo, err := indicator.NewAdaptiveDEMAMomentumOscillatorWithParams(8, 5, 0.3, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create RSI: %w", err)
+		return nil, fmt.Errorf("failed to create Adaptive DEMA Momentum Oscillator: %w", err)
 	}
 
-	// Stochastic: 7/3 for fast K with smoothed D
-	stochastic, err := indicator.NewStochasticOscillatorWithParams(7, 3)
+	// VWAO: 7-period for volume-weighted trend strength
+	vwao, err := indicator.NewVolumeWeightedAroonOscillatorWithParams(7, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create stochastic oscillator: %w", err)
+		return nil, fmt.Errorf("failed to create Volume Weighted Aroon Oscillator: %w", err)
 	}
 
 	// MACD: 5/12/4 for tight histogram oscillation
 	macd, err := indicator.NewMACDWithParams(5, 12, 4)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MACD: %w", err)
-	}
-
-	// CCI: 8-period for quick cycle extremes
-	cci, err := indicator.NewCommodityChannelIndexWithParams(8)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create CCI: %w", err)
 	}
 
 	// HMA: 6-period for ultra-low lag trend
@@ -119,16 +114,15 @@ func NewScalpingIndicatorSuiteWithConfig(cfg config.IndicatorConfig) (*ScalpingI
 	}
 
 	return &ScalpingIndicatorSuite{
-		rsi:        rsi,
-		stochastic: stochastic,
-		macd:       macd,
-		cci:        cci,
-		hma:        hma,
-		sar:        sar,
-		bollinger:  bollinger,
-		atr:        atr,
-		vwap:       vwap,
-		mfi:        mfi,
+		admo:      admo,
+		vwao:      vwao,
+		macd:      macd,
+		hma:       hma,
+		sar:       sar,
+		bollinger: bollinger,
+		atr:       atr,
+		vwap:      vwap,
+		mfi:       mfi,
 	}, nil
 }
 
@@ -147,17 +141,14 @@ func (suite *ScalpingIndicatorSuite) Add(high, low, close, volume float64) error
 		return fmt.Errorf("invalid volume")
 	}
 
-	if err := suite.rsi.Add(close); err != nil {
-		return fmt.Errorf("RSI add failed: %w", err)
+	if err := suite.admo.Add(high, low, close); err != nil {
+		return fmt.Errorf("ADMO add failed: %w", err)
 	}
-	if err := suite.stochastic.Add(high, low, close); err != nil {
-		return fmt.Errorf("stochastic add failed: %w", err)
+	if err := suite.vwao.Add(high, low, close, volume); err != nil {
+		return fmt.Errorf("VWAO add failed: %w", err)
 	}
 	if err := suite.macd.Add(close); err != nil {
 		return fmt.Errorf("MACD add failed: %w", err)
-	}
-	if err := suite.cci.Add(high, low, close); err != nil {
-		return fmt.Errorf("CCI add failed: %w", err)
 	}
 	if err := suite.hma.Add(close); err != nil {
 		return fmt.Errorf("HMA add failed: %w", err)
@@ -276,8 +267,12 @@ func (suite *ScalpingIndicatorSuite) GetCombinedBearishSignal() (string, error) 
 func (suite *ScalpingIndicatorSuite) GetDivergenceSignals() (map[string]string, error) {
 	result := make(map[string]string)
 
-	if rsiDiv, rsiSignal, err := suite.rsi.IsDivergence(); err == nil && rsiDiv {
-		result["RSI"] = rsiSignal
+	if admoDiv, admoSignal := suite.admo.IsDivergence(); admoDiv {
+		result["ADMO"] = admoSignal
+	}
+
+	if vwaoDiv, vwaoSignal, err := suite.vwao.IsDivergence(); err == nil && vwaoDiv {
+		result["VWAO"] = vwaoSignal
 	}
 
 	if mfiSignal, err := suite.mfi.IsDivergence(); err == nil && mfiSignal != "none" {
@@ -288,10 +283,9 @@ func (suite *ScalpingIndicatorSuite) GetDivergenceSignals() (map[string]string, 
 
 // Reset clears all indicator data and cached price context.
 func (suite *ScalpingIndicatorSuite) Reset() {
-	suite.rsi.Reset()
-	suite.stochastic.Reset()
+	suite.admo.Reset()
+	suite.vwao.Reset()
 	suite.macd.Reset()
-	suite.cci.Reset()
 	suite.hma.Reset()
 	suite.sar.Reset()
 	suite.bollinger.Reset()
@@ -310,20 +304,16 @@ func (suite *ScalpingIndicatorSuite) Reset() {
 
 // ----------------------- Indicator getters -----------------------
 
-func (suite *ScalpingIndicatorSuite) GetRSI() *indicator.RelativeStrengthIndex {
-	return suite.rsi
+func (suite *ScalpingIndicatorSuite) GetAdaptiveDEMAMomentumOscillator() *indicator.AdaptiveDEMAMomentumOscillator {
+	return suite.admo
 }
 
-func (suite *ScalpingIndicatorSuite) GetStochastic() *indicator.StochasticOscillator {
-	return suite.stochastic
+func (suite *ScalpingIndicatorSuite) GetVolumeWeightedAroonOscillator() *indicator.VolumeWeightedAroonOscillator {
+	return suite.vwao
 }
 
 func (suite *ScalpingIndicatorSuite) GetMACD() *indicator.MACD {
 	return suite.macd
-}
-
-func (suite *ScalpingIndicatorSuite) GetCCI() *indicator.CommodityChannelIndex {
-	return suite.cci
 }
 
 func (suite *ScalpingIndicatorSuite) GetHMA() *indicator.HullMovingAverage {
@@ -354,10 +344,9 @@ func (suite *ScalpingIndicatorSuite) GetMFI() *indicator.MoneyFlowIndex {
 func (suite *ScalpingIndicatorSuite) GetPlotData(startTime, interval int64) []indicator.PlotData {
 	var plotData []indicator.PlotData
 
-	plotData = append(plotData, suite.rsi.GetPlotData(startTime, interval)...)
-	plotData = append(plotData, suite.stochastic.GetPlotData(startTime, interval)...)
+	plotData = append(plotData, suite.admo.GetPlotData(startTime, interval)...)
+	plotData = append(plotData, suite.vwao.GetPlotData(startTime, interval)...)
 	plotData = append(plotData, suite.macd.GetPlotData(startTime, interval)...)
-	plotData = append(plotData, suite.cci.GetPlotData(startTime, interval)...)
 	plotData = append(plotData, suite.hma.GetPlotData(startTime, interval)...)
 	plotData = append(plotData, suite.sar.GetPlotData(startTime, interval)...)
 	plotData = append(plotData, suite.bollinger.GetPlotData(startTime, interval)...)
@@ -394,56 +383,60 @@ func (suite *ScalpingIndicatorSuite) GetPlotData(startTime, interval int64) []in
 func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 	var bull, bear float64
 
-	/* ---- RSI (fast reversal) ---- */
-	// RSI crossovers are primary scalping signals
-	if bullish, err := suite.rsi.IsBullishCrossover(); err == nil && bullish {
-		bull += 1.2
+	/* ---- Adaptive DEMA Momentum Oscillator (volatility-adaptive momentum) ---- */
+	// ADMO crossovers are primary scalping signals - adapts to volatility changes
+	if bullish, err := suite.admo.IsBullishCrossover(); err == nil && bullish {
+		bull += 1.3 // Slightly higher weight than RSI due to adaptive nature
 	}
-	if bearish, err := suite.rsi.IsBearishCrossover(); err == nil && bearish {
+	if bearish, err := suite.admo.IsBearishCrossover(); err == nil && bearish {
+		bear += 1.3
+	}
+	// ADMO overbought/oversold zones
+	admoVals := suite.admo.GetAMDOValues()
+	if len(admoVals) > 0 {
+		lastADMO := admoVals[len(admoVals)-1]
+		// Check against config thresholds (default ±1.0, but we set ±0.8 for scalping)
+		if lastADMO < -0.8 {
+			bull += 0.6 // Oversold zone
+		} else if lastADMO > 0.8 {
+			bear += 0.6 // Overbought zone
+		}
+		// Strong momentum signals
+		if lastADMO > 1.5 {
+			bear += 0.3 // Very overbought
+		} else if lastADMO < -1.5 {
+			bull += 0.3 // Very oversold
+		}
+	}
+
+	/* ---- Volume Weighted Aroon Oscillator (volume-backed trend strength) ---- */
+	// VWAO provides volume-weighted trend signals - excellent for scalping
+	if bullish, err := suite.vwao.IsBullishCrossover(); err == nil && bullish {
+		bull += 1.2 // Strong signal: volume-weighted trend shift
+	}
+	if bearish, err := suite.vwao.IsBearishCrossover(); err == nil && bearish {
 		bear += 1.2
 	}
-	if zone, err := suite.rsi.GetOverboughtOversold(); err == nil {
-		switch zone {
-		case "Oversold":
-			bull += 0.5 // reduced: zone alone is weaker than crossover
-		case "Overbought":
-			bear += 0.5
+	// Strong trend detection
+	if strong, err := suite.vwao.IsStrongTrend(); err == nil && strong {
+		vwaoVals := suite.vwao.GetVWAOValues()
+		if len(vwaoVals) > 0 {
+			lastVWAO := vwaoVals[len(vwaoVals)-1]
+			if lastVWAO > 60 {
+				bull += 0.7 // Strong uptrend with volume
+			} else if lastVWAO < -60 {
+				bear += 0.7 // Strong downtrend with volume
+			}
 		}
 	}
-
-	/* ---- Stochastic Oscillator (fast cross) ---- */
-	// Fixed: proper handling of K/D array alignment
-	kVals := suite.stochastic.GetKValues()
-	dVals := suite.stochastic.GetDValues()
-
-	// Zone signals from %K
-	if len(kVals) > 0 {
-		k := kVals[len(kVals)-1]
-		// Tighter zones for scalping: 22/78 instead of 25/75
-		if k < 22 {
-			bull += 0.6
-		} else if k > 78 {
-			bear += 0.6
-		}
-	}
-
-	// K/D crossover detection with proper array bounds checking
-	if len(kVals) >= 2 && len(dVals) >= 2 {
-		// Get the aligned values: D values start later than K values
-		kLen, dLen := len(kVals), len(dVals)
-		// Both arrays have at least 2 elements, get the last two from each
-		curK := kVals[kLen-1]
-		prevK := kVals[kLen-2]
-		curD := dVals[dLen-1]
-		prevD := dVals[dLen-2]
-
-		// Bullish crossover: K crosses above D (allow equal on previous)
-		if prevK <= prevD && curK > curD {
-			bull += 1.0
-		}
-		// Bearish crossover: K crosses below D (allow equal on previous)
-		if prevK >= prevD && curK < curD {
-			bear += 1.0
+	// VWAO direction bias
+	vwaoVals := suite.vwao.GetVWAOValues()
+	if len(vwaoVals) > 0 {
+		lastVWAO := vwaoVals[len(vwaoVals)-1]
+		if lastVWAO > 30 {
+			bull += 0.3 // Moderate bullish bias
+		} else if lastVWAO < -30 {
+			bear += 0.3 // Moderate bearish bias
 		}
 	}
 
@@ -477,28 +470,6 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 			// Accelerating bearish: histogram decreasing
 			if curHist < prevHist && prevHist < prev2Hist && curHist < 0 {
 				bear += 0.2
-			}
-		}
-	}
-
-	/* ---- CCI (cycle extremes) ---- */
-	cciVals := suite.cci.GetValues()
-	if len(cciVals) > 0 {
-		lastCCI := cciVals[len(cciVals)-1]
-		// Tighter CCI extremes for scalping: ±80 instead of ±90
-		switch {
-		case lastCCI <= -80:
-			bull += 0.6
-		case lastCCI >= 80:
-			bear += 0.6
-		}
-		// Zero-line cross (trend shift)
-		if len(cciVals) >= 2 {
-			prevCCI := cciVals[len(cciVals)-2]
-			if prevCCI < 0 && lastCCI > 0 {
-				bull += 0.35
-			} else if prevCCI > 0 && lastCCI < 0 {
-				bear += 0.35
 			}
 		}
 	}
