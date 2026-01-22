@@ -30,6 +30,13 @@ type ScalpingIndicatorSuite struct {
 	lastLow    float64
 	hasClose   bool
 	closeCount int // track number of closes for momentum lookback
+
+	// Cached values for performance
+	cachedVolRatio    float64
+	volRatioValid     bool
+	cachedScoresValid bool
+	cachedBullScore   float64
+	cachedBearScore   float64
 }
 
 // NewScalpingIndicatorSuite creates a suite with scalping-optimised defaults.
@@ -178,6 +185,11 @@ func (suite *ScalpingIndicatorSuite) Add(high, low, close, volume float64) error
 	suite.lastLow = low
 	suite.hasClose = true
 	suite.closeCount++
+
+	// Invalidate cached values when new data is added
+	suite.volRatioValid = false
+	suite.cachedScoresValid = false
+
 	return nil
 }
 
@@ -300,6 +312,13 @@ func (suite *ScalpingIndicatorSuite) Reset() {
 	suite.lastLow = 0
 	suite.hasClose = false
 	suite.closeCount = 0
+
+	// Clear cached values
+	suite.cachedVolRatio = 0
+	suite.volRatioValid = false
+	suite.cachedScoresValid = false
+	suite.cachedBullScore = 0
+	suite.cachedBearScore = 0
 }
 
 // ----------------------- Indicator getters -----------------------
@@ -342,7 +361,8 @@ func (suite *ScalpingIndicatorSuite) GetMFI() *indicator.MoneyFlowIndex {
 
 // GetPlotData returns combined plot data from all indicators.
 func (suite *ScalpingIndicatorSuite) GetPlotData(startTime, interval int64) []indicator.PlotData {
-	var plotData []indicator.PlotData
+	// Pre-allocate with estimated capacity to reduce allocations
+	plotData := make([]indicator.PlotData, 0, 20)
 
 	plotData = append(plotData, suite.admo.GetPlotData(startTime, interval)...)
 	plotData = append(plotData, suite.vwao.GetPlotData(startTime, interval)...)
@@ -381,6 +401,10 @@ func (suite *ScalpingIndicatorSuite) GetPlotData(startTime, interval int64) []in
 //   - Extreme zone readings (medium weight: mean reversion setups)
 //   - Trend confirmation (lower weight: filters false signals)
 func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
+	if suite.cachedScoresValid {
+		return suite.cachedBullScore, suite.cachedBearScore
+	}
+
 	var bull, bear float64
 
 	/* ---- Adaptive DEMA Momentum Oscillator (volatility-adaptive momentum) ---- */
@@ -417,22 +441,21 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 	if bearish, err := suite.vwao.IsBearishCrossover(); err == nil && bearish {
 		bear += 1.2
 	}
-	// Strong trend detection
-	if strong, err := suite.vwao.IsStrongTrend(); err == nil && strong {
-		vwaoVals := suite.vwao.GetVWAOValues()
-		if len(vwaoVals) > 0 {
-			lastVWAO := vwaoVals[len(vwaoVals)-1]
+
+	// Cache VWAO values (accessed multiple times)
+	vwaoVals := suite.vwao.GetVWAOValues()
+	if len(vwaoVals) > 0 {
+		lastVWAO := vwaoVals[len(vwaoVals)-1]
+
+		// Strong trend detection
+		if strong, err := suite.vwao.IsStrongTrend(); err == nil && strong {
 			if lastVWAO > 60 {
 				bull += 0.7 // Strong uptrend with volume
 			} else if lastVWAO < -60 {
 				bear += 0.7 // Strong downtrend with volume
 			}
 		}
-	}
-	// VWAO direction bias
-	vwaoVals := suite.vwao.GetVWAOValues()
-	if len(vwaoVals) > 0 {
-		lastVWAO := vwaoVals[len(vwaoVals)-1]
+		// VWAO direction bias
 		if lastVWAO > 30 {
 			bull += 0.3 // Moderate bullish bias
 		} else if lastVWAO < -30 {
@@ -443,8 +466,9 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 	/* ---- MACD (histogram cross) ---- */
 	histVals := suite.macd.GetHistogramValues()
 	if len(histVals) >= 2 {
-		curHist := histVals[len(histVals)-1]
-		prevHist := histVals[len(histVals)-2]
+		histLen := len(histVals)
+		curHist := histVals[histLen-1]
+		prevHist := histVals[histLen-2]
 
 		// Histogram zero-line crossover (strong signal)
 		if prevHist < 0 && curHist > 0 {
@@ -461,8 +485,8 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 		}
 
 		// Histogram momentum acceleration (scalping edge)
-		if len(histVals) >= 3 {
-			prev2Hist := histVals[len(histVals)-3]
+		if histLen >= 3 {
+			prev2Hist := histVals[histLen-3]
 			// Accelerating bullish: histogram increasing
 			if curHist > prevHist && prevHist > prev2Hist && curHist > 0 {
 				bull += 0.2
@@ -500,66 +524,71 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 	}
 
 	/* ---- Bollinger Bands (volatility squeeze/mean reversion) ---- */
-	upper := suite.bollinger.GetUpper()
-	middle := suite.bollinger.GetMiddle()
-	lower := suite.bollinger.GetLower()
-	if suite.hasClose && len(upper) > 0 && len(lower) > 0 && len(middle) > 0 {
-		lastUpper := upper[len(upper)-1]
-		lastLower := lower[len(lower)-1]
-		lastMiddle := middle[len(middle)-1]
-		bandwidth := lastUpper - lastLower
+	if suite.hasClose {
+		upper := suite.bollinger.GetUpper()
+		middle := suite.bollinger.GetMiddle()
+		lower := suite.bollinger.GetLower()
 
-		// Band touch/penetration signals (mean reversion for scalping)
-		if bandwidth > 0 {
-			// Calculate how far price is from the bands as a ratio
-			lowerDist := (suite.lastClose - lastLower) / bandwidth
-			upperDist := (lastUpper - suite.lastClose) / bandwidth
+		if len(upper) > 0 && len(lower) > 0 && len(middle) > 0 {
+			lastUpper := upper[len(upper)-1]
+			lastLower := lower[len(lower)-1]
+			lastMiddle := middle[len(middle)-1]
+			bandwidth := lastUpper - lastLower
 
-			// Price at or below lower band: strong bullish reversal signal
-			if lowerDist <= 0 {
-				bull += 0.9
-			} else if lowerDist < 0.1 {
-				// Price touching lower band area
-				bull += 0.6
+			// Band touch/penetration signals (mean reversion for scalping)
+			if bandwidth > 0 {
+				// Calculate how far price is from the bands as a ratio
+				lowerDist := (suite.lastClose - lastLower) / bandwidth
+				upperDist := (lastUpper - suite.lastClose) / bandwidth
+
+				// Price at or below lower band: strong bullish reversal signal
+				if lowerDist <= 0 {
+					bull += 0.9
+				} else if lowerDist < 0.1 {
+					// Price touching lower band area
+					bull += 0.6
+				}
+
+				// Price at or above upper band: strong bearish reversal signal
+				if upperDist <= 0 {
+					bear += 0.9
+				} else if upperDist < 0.1 {
+					// Price touching upper band area
+					bear += 0.6
+				}
 			}
 
-			// Price at or above upper band: strong bearish reversal signal
-			if upperDist <= 0 {
-				bear += 0.9
-			} else if upperDist < 0.1 {
-				// Price touching upper band area
-				bear += 0.6
+			// Middle band cross (trend bias)
+			if suite.lastClose > lastMiddle {
+				bull += 0.2
+			} else if suite.lastClose < lastMiddle {
+				bear += 0.2
 			}
-		}
-
-		// Middle band cross (trend bias)
-		if suite.lastClose > lastMiddle {
-			bull += 0.2
-		} else if suite.lastClose < lastMiddle {
-			bear += 0.2
 		}
 	}
 
 	/* ---- ATR (volatility confirmation) ---- */
 	// Expanding ATR with price movement confirms trend strength
-	atrVals := suite.atr.GetATRValues()
-	if len(atrVals) >= 2 && suite.hasClose && suite.prevClose > 0 {
-		lastATR := atrVals[len(atrVals)-1]
-		prevATR := atrVals[len(atrVals)-2]
-		priceTrend := suite.lastClose - suite.prevClose
+	if suite.hasClose && suite.prevClose > 0 {
+		atrVals := suite.atr.GetATRValues()
+		if len(atrVals) >= 2 {
+			lastATR := atrVals[len(atrVals)-1]
+			prevATR := atrVals[len(atrVals)-2]
+			priceTrend := suite.lastClose - suite.prevClose
 
-		if prevATR > 0 {
-			atrChange := (lastATR - prevATR) / prevATR
-			// Expanding volatility with directional move = confirmation
-			if atrChange > 0.02 && priceTrend != 0 {
-				boost := 0.2
-				if atrChange > 0.08 {
-					boost = 0.35 // strong volatility expansion
-				}
-				if priceTrend > 0 {
-					bull += boost
-				} else {
-					bear += boost
+			if prevATR > 0 {
+				atrChange := (lastATR - prevATR) / prevATR
+				// Expanding volatility with directional move = confirmation
+				if atrChange > 0.02 && priceTrend != 0 {
+					boost := 0.2
+					if atrChange > 0.08 {
+						boost = 0.35 // strong volatility expansion
+					}
+					if priceTrend > 0 {
+						bull += boost
+					} else {
+						bear += boost
+					}
 				}
 			}
 		}
@@ -567,13 +596,15 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 
 	/* ---- VWAP (intraday flow) ---- */
 	// VWAP is critical for scalping: institutional level
-	if vals := suite.vwap.GetValues(); len(vals) > 0 && suite.hasClose {
-		lastVWAP := vals[len(vals)-1]
-		if lastVWAP > 0 {
-			if suite.lastClose > lastVWAP {
-				bull += 0.8
-			} else if suite.lastClose < lastVWAP {
-				bear += 0.8
+	if suite.hasClose {
+		if vals := suite.vwap.GetValues(); len(vals) > 0 {
+			lastVWAP := vals[len(vals)-1]
+			if lastVWAP > 0 {
+				if suite.lastClose > lastVWAP {
+					bull += 0.8
+				} else if suite.lastClose < lastVWAP {
+					bear += 0.8
+				}
 			}
 		}
 	}
@@ -605,13 +636,27 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 		}
 	}
 
+	// Cache the computed scores
+	suite.cachedBullScore = bull
+	suite.cachedBearScore = bear
+	suite.cachedScoresValid = true
+
 	return bull, bear
 }
 
 func (suite *ScalpingIndicatorSuite) currentVolRatio() float64 {
+	if suite.volRatioValid {
+		return suite.cachedVolRatio
+	}
+
 	atrVals := suite.atr.GetATRValues()
 	if len(atrVals) == 0 || suite.lastClose == 0 {
+		suite.cachedVolRatio = 0
+		suite.volRatioValid = true
 		return 0
 	}
-	return atrVals[len(atrVals)-1] / suite.lastClose
+
+	suite.cachedVolRatio = atrVals[len(atrVals)-1] / suite.lastClose
+	suite.volRatioValid = true
+	return suite.cachedVolRatio
 }
