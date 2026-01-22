@@ -199,6 +199,7 @@ func NewAdaptiveTrendStrengthOscillatorWithParams(shortPeriod, longPeriod, volat
 // ---- Indicator suite ----
 type ScalpingIndicatorSuite = suite.ScalpingIndicatorSuite
 type IndicatorSuite = suite.ScalpingIndicatorSuite
+type OptimizedScalpingIndicatorSuite = suite.OptimizedScalpingIndicatorSuite
 
 func NewScalpingIndicatorSuite() (*suite.ScalpingIndicatorSuite, error) {
 	return suite.NewScalpingIndicatorSuite()
@@ -206,6 +207,14 @@ func NewScalpingIndicatorSuite() (*suite.ScalpingIndicatorSuite, error) {
 
 func NewScalpingIndicatorSuiteWithConfig(cfg config.IndicatorConfig) (*suite.ScalpingIndicatorSuite, error) {
 	return suite.NewScalpingIndicatorSuiteWithConfig(cfg)
+}
+
+func NewOptimizedScalpingIndicatorSuite() (*suite.OptimizedScalpingIndicatorSuite, error) {
+	return suite.NewOptimizedScalpingIndicatorSuite()
+}
+
+func NewOptimizedScalpingIndicatorSuiteWithConfig(cfg config.IndicatorConfig) (*suite.OptimizedScalpingIndicatorSuite, error) {
+	return suite.NewOptimizedScalpingIndicatorSuiteWithConfig(cfg)
 }
 
 // Backwards-compatible aliases for callers expecting the old names.
