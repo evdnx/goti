@@ -683,13 +683,50 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 
 	var bull, bear float64
 
+	// ---- Regime detection for profit/risk tilt ----
+	volRatio := suite.currentVolRatio()
+	bandwidthPct := 0.0
+	if suite.hasClose {
+		upper := suite.bollinger.GetUpper()
+		lower := suite.bollinger.GetLower()
+		if len(upper) > 0 && len(lower) > 0 && suite.lastClose > 0 {
+			bandwidthPct = (upper[len(upper)-1] - lower[len(lower)-1]) / suite.lastClose
+		}
+	}
+	isChop := volRatio < 0.0012 && bandwidthPct < 0.008 // tight range + low vol → avoid trend chasing
+
+	trendBias := 0.0
+	strongTrend := false
+	if vals := suite.vwao.GetVWAOValues(); len(vals) > 0 {
+		last := vals[len(vals)-1]
+		if last > 60 {
+			trendBias += 1
+			strongTrend = true
+		} else if last < -60 {
+			trendBias -= 1
+			strongTrend = true
+		}
+	}
+	if dir, err := suite.hma.GetTrendDirection(); err == nil {
+		if dir == "Bullish" {
+			trendBias += 0.5
+		} else if dir == "Bearish" {
+			trendBias -= 0.5
+		}
+	}
+
+	trendScale := 1.0
+	if isChop {
+		trendScale = 0.7 // de-emphasise trend signals in chop
+	}
+
 	/* ---- Adaptive DEMA Momentum Oscillator (volatility-adaptive momentum) ---- */
 	// ADMO crossovers are primary scalping signals - adapts to volatility changes
 	if bullish, err := suite.admo.IsBullishCrossover(); err == nil && bullish {
-		bull += 1.3 // Slightly higher weight than RSI due to adaptive nature
+		bull += 1.3 * trendScale // Slightly higher weight than RSI due to adaptive nature
 	}
 	if bearish, err := suite.admo.IsBearishCrossover(); err == nil && bearish {
-		bear += 1.3
+		bear += 1.3 * trendScale
 	}
 	// ADMO overbought/oversold zones
 	admoVals := suite.admo.GetAMDOValues()
@@ -697,25 +734,25 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 		lastADMO := admoVals[len(admoVals)-1]
 		// Check against config thresholds (default ±1.0, but we set ±0.8 for scalping)
 		if lastADMO < -0.8 {
-			bull += 0.6 // Oversold zone
+			bull += 0.6
 		} else if lastADMO > 0.8 {
-			bear += 0.6 // Overbought zone
+			bear += 0.6
 		}
 		// Strong momentum signals
 		if lastADMO > 1.5 {
-			bear += 0.3 // Very overbought
+			bear += 0.3
 		} else if lastADMO < -1.5 {
-			bull += 0.3 // Very oversold
+			bull += 0.3
 		}
 	}
 
 	/* ---- Volume Weighted Aroon Oscillator (volume-backed trend strength) ---- */
 	// VWAO provides volume-weighted trend signals - excellent for scalping
 	if bullish, err := suite.vwao.IsBullishCrossover(); err == nil && bullish {
-		bull += 1.2 // Strong signal: volume-weighted trend shift
+		bull += 1.2 * trendScale // Strong signal: volume-weighted trend shift
 	}
 	if bearish, err := suite.vwao.IsBearishCrossover(); err == nil && bearish {
-		bear += 1.2
+		bear += 1.2 * trendScale
 	}
 
 	// Cache VWAO values (accessed multiple times)
@@ -748,16 +785,16 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 
 		// Histogram zero-line crossover (strong signal)
 		if prevHist < 0 && curHist > 0 {
-			bull += 1.1
+			bull += 1.1 * trendScale
 		} else if prevHist > 0 && curHist < 0 {
-			bear += 1.1
+			bear += 1.1 * trendScale
 		}
 
 		// Histogram direction (momentum)
 		if curHist > 0 {
-			bull += 0.25
+			bull += 0.25 * trendScale
 		} else if curHist < 0 {
-			bear += 0.25
+			bear += 0.25 * trendScale
 		}
 
 		// Histogram momentum acceleration (scalping edge)
@@ -777,10 +814,10 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 	/* ---- HMA (low-lag trend) ---- */
 	// HMA crossovers are excellent for scalping due to minimal lag
 	if bullish, err := suite.hma.IsBullishCrossover(); err == nil && bullish {
-		bull += 1.1
+		bull += 1.1 * trendScale
 	}
 	if bearish, err := suite.hma.IsBearishCrossover(); err == nil && bearish {
-		bear += 1.1
+		bear += 1.1 * trendScale
 	}
 	if dir, err := suite.hma.GetTrendDirection(); err == nil {
 		if dir == "Bullish" {
@@ -810,6 +847,19 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 			lastLower := lower[len(lower)-1]
 			lastMiddle := middle[len(middle)-1]
 			bandwidth := lastUpper - lastLower
+			meanRevBullScale := 1.0
+			meanRevBearScale := 1.0
+			if strongTrend {
+				if trendBias > 0 {
+					meanRevBearScale = 0.5 // fade fewer shorts in strong uptrend
+				} else if trendBias < 0 {
+					meanRevBullScale = 0.5 // fade fewer longs in strong downtrend
+				}
+			}
+			if isChop {
+				meanRevBullScale *= 1.1
+				meanRevBearScale *= 1.1
+			}
 
 			// Band touch/penetration signals (mean reversion for scalping)
 			if bandwidth > 0 {
@@ -819,18 +869,18 @@ func (suite *ScalpingIndicatorSuite) computeScores() (float64, float64) {
 
 				// Price at or below lower band: strong bullish reversal signal
 				if lowerDist <= 0 {
-					bull += 0.9
+					bull += 0.9 * meanRevBullScale
 				} else if lowerDist < 0.1 {
 					// Price touching lower band area
-					bull += 0.6
+					bull += 0.6 * meanRevBullScale
 				}
 
 				// Price at or above upper band: strong bearish reversal signal
 				if upperDist <= 0 {
-					bear += 0.9
+					bear += 0.9 * meanRevBearScale
 				} else if upperDist < 0.1 {
 					// Price touching upper band area
-					bear += 0.6
+					bear += 0.6 * meanRevBearScale
 				}
 			}
 
@@ -951,13 +1001,47 @@ func (suite *OptimizedScalpingIndicatorSuite) computeScores() (float64, float64)
 
 	var bull, bear float64
 
+	// ---- Regime detection for profit/risk tilt ----
+	volRatio := suite.currentVolRatio()
+	isChop := volRatio < 0.0012 // low volatility regime → avoid chasing trends
+	trendBias := 0.0
+	strongTrend := false
+	if vals := suite.vwao.GetVWAOValues(); len(vals) > 0 {
+		last := vals[len(vals)-1]
+		if last > 60 {
+			trendBias += 1
+			strongTrend = true
+		} else if last < -60 {
+			trendBias -= 1
+			strongTrend = true
+		}
+	}
+	if dir, err := suite.hma.GetTrendDirection(); err == nil {
+		if dir == "Bullish" {
+			trendBias += 0.5
+		} else if dir == "Bearish" {
+			trendBias -= 0.5
+		}
+	}
+	trendScale := 1.0
+	if isChop {
+		trendScale = 0.7
+	}
+	if strongTrend {
+		if trendBias > 0 {
+			bull += 0.2 // favour signals in the prevailing strong trend
+		} else if trendBias < 0 {
+			bear += 0.2
+		}
+	}
+
 	/* ---- Adaptive DEMA Momentum Oscillator (volatility-adaptive momentum) ---- */
 	// ADMO crossovers are primary scalping signals - adapts to volatility changes
 	if bullish, err := suite.admo.IsBullishCrossover(); err == nil && bullish {
-		bull += 1.3 // Slightly higher weight than RSI due to adaptive nature
+		bull += 1.3 * trendScale // Slightly higher weight than RSI due to adaptive nature
 	}
 	if bearish, err := suite.admo.IsBearishCrossover(); err == nil && bearish {
-		bear += 1.3
+		bear += 1.3 * trendScale
 	}
 	// ADMO overbought/oversold zones
 	admoVals := suite.admo.GetAMDOValues()
@@ -980,10 +1064,10 @@ func (suite *OptimizedScalpingIndicatorSuite) computeScores() (float64, float64)
 	/* ---- Volume Weighted Aroon Oscillator (volume-backed trend strength) ---- */
 	// VWAO provides volume-weighted trend signals - excellent for scalping
 	if bullish, err := suite.vwao.IsBullishCrossover(); err == nil && bullish {
-		bull += 1.2 // Strong signal: volume-weighted trend shift
+		bull += 1.2 * trendScale // Strong signal: volume-weighted trend shift
 	}
 	if bearish, err := suite.vwao.IsBearishCrossover(); err == nil && bearish {
-		bear += 1.2
+		bear += 1.2 * trendScale
 	}
 
 	// Cache VWAO values (accessed multiple times)
@@ -1016,16 +1100,16 @@ func (suite *OptimizedScalpingIndicatorSuite) computeScores() (float64, float64)
 
 		// Histogram zero-line crossover (strong signal)
 		if prevHist < 0 && curHist > 0 {
-			bull += 1.1
+			bull += 1.1 * trendScale
 		} else if prevHist > 0 && curHist < 0 {
-			bear += 1.1
+			bear += 1.1 * trendScale
 		}
 
 		// Histogram direction (momentum)
 		if curHist > 0 {
-			bull += 0.25
+			bull += 0.25 * trendScale
 		} else if curHist < 0 {
-			bear += 0.25
+			bear += 0.25 * trendScale
 		}
 
 		// Histogram momentum acceleration (scalping edge)
