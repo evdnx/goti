@@ -29,6 +29,10 @@ type StochasticOscillator struct {
 
 	lastK float64
 	lastD float64
+
+	baseIndex int   // absolute index of the first element in highs/lows/closes
+	highDeque []int // monotonic deque (indices) for highs (max)
+	lowDeque  []int // monotonic deque (indices) for lows (min)
 }
 
 // NewStochasticOscillator builds a stochastic oscillator with 14/3 defaults.
@@ -43,13 +47,15 @@ func NewStochasticOscillatorWithParams(kPeriod, dPeriod int) (*StochasticOscilla
 		return nil, errors.New("periods must be at least 1")
 	}
 	return &StochasticOscillator{
-		kPeriod: kPeriod,
-		dPeriod: dPeriod,
-		highs:   make([]float64, 0, kPeriod+1),
-		lows:    make([]float64, 0, kPeriod+1),
-		closes:  make([]float64, 0, kPeriod+1),
-		kValues: make([]float64, 0, dPeriod),
-		dValues: make([]float64, 0, dPeriod),
+		kPeriod:   kPeriod,
+		dPeriod:   dPeriod,
+		highs:     make([]float64, 0, kPeriod+1),
+		lows:      make([]float64, 0, kPeriod+1),
+		closes:    make([]float64, 0, kPeriod+1),
+		kValues:   make([]float64, 0, dPeriod),
+		dValues:   make([]float64, 0, dPeriod),
+		highDeque: make([]int, 0, kPeriod+1),
+		lowDeque:  make([]int, 0, kPeriod+1),
 	}, nil
 }
 
@@ -58,9 +64,14 @@ func (s *StochasticOscillator) Add(high, low, close float64) error {
 	if high < low || !core.IsNonNegativePrice(close) {
 		return errors.New("invalid price data")
 	}
+	idx := s.baseIndex + len(s.closes)
+
 	s.highs = append(s.highs, high)
 	s.lows = append(s.lows, low)
 	s.closes = append(s.closes, close)
+
+	s.pushHigh(idx, high)
+	s.pushLow(idx, low)
 
 	if len(s.closes) >= s.kPeriod {
 		k := s.computeK()
@@ -116,6 +127,9 @@ func (s *StochasticOscillator) Reset() {
 	s.kValues = s.kValues[:0]
 	s.dValues = s.dValues[:0]
 	s.lastK, s.lastD = 0, 0
+	s.baseIndex = 0
+	s.highDeque = s.highDeque[:0]
+	s.lowDeque = s.lowDeque[:0]
 }
 
 // SetPeriods updates %K and %D periods and resets the oscillator.
@@ -168,20 +182,11 @@ func (s *StochasticOscillator) GetPlotData(startTime, interval int64) []core.Plo
 }
 
 func (s *StochasticOscillator) computeK() float64 {
-	start := len(s.closes) - s.kPeriod
-	windowHigh := s.highs[start:]
-	windowLow := s.lows[start:]
-
-	highest := windowHigh[0]
-	lowest := windowLow[0]
-	for i := 1; i < s.kPeriod; i++ {
-		if windowHigh[i] > highest {
-			highest = windowHigh[i]
-		}
-		if windowLow[i] < lowest {
-			lowest = windowLow[i]
-		}
+	if len(s.highDeque) == 0 || len(s.lowDeque) == 0 {
+		return 0
 	}
+	highest := s.getHigh(s.highDeque[0])
+	lowest := s.getLow(s.lowDeque[0])
 	rangeHL := highest - lowest
 	if rangeHL == 0 {
 		return 0
@@ -191,10 +196,61 @@ func (s *StochasticOscillator) computeK() float64 {
 }
 
 func (s *StochasticOscillator) trimSlices() {
-	s.highs = core.KeepLast(s.highs, s.kPeriod+1)
-	s.lows = core.KeepLast(s.lows, s.kPeriod+1)
-	s.closes = core.KeepLast(s.closes, s.kPeriod+1)
+	maxRaw := s.kPeriod + 1
+	if len(s.highs) > maxRaw {
+		trim := len(s.highs) - maxRaw
+		s.highs = s.highs[trim:]
+		s.lows = s.lows[trim:]
+		s.closes = s.closes[trim:]
+		s.baseIndex += trim
+		s.dropOutdatedIndices()
+	}
+
 	maxKeep := s.kPeriod + s.dPeriod
 	s.kValues = core.KeepLast(s.kValues, maxKeep)
 	s.dValues = core.KeepLast(s.dValues, maxKeep)
+}
+
+// getHigh returns the high value for the absolute index idx.
+func (s *StochasticOscillator) getHigh(idx int) float64 {
+	return s.highs[idx-s.baseIndex]
+}
+
+func (s *StochasticOscillator) getLow(idx int) float64 {
+	return s.lows[idx-s.baseIndex]
+}
+
+func (s *StochasticOscillator) pushHigh(idx int, value float64) {
+	for len(s.highDeque) > 0 && value >= s.getHigh(s.highDeque[len(s.highDeque)-1]) {
+		s.highDeque = s.highDeque[:len(s.highDeque)-1]
+	}
+	s.highDeque = append(s.highDeque, idx)
+	s.pruneDeque(&s.highDeque, idx)
+}
+
+func (s *StochasticOscillator) pushLow(idx int, value float64) {
+	for len(s.lowDeque) > 0 && value <= s.getLow(s.lowDeque[len(s.lowDeque)-1]) {
+		s.lowDeque = s.lowDeque[:len(s.lowDeque)-1]
+	}
+	s.lowDeque = append(s.lowDeque, idx)
+	s.pruneDeque(&s.lowDeque, idx)
+}
+
+func (s *StochasticOscillator) pruneDeque(deque *[]int, idx int) {
+	windowStart := idx - s.kPeriod + 1
+	for len(*deque) > 0 && (*deque)[0] < windowStart {
+		*deque = (*deque)[1:]
+	}
+	for len(*deque) > 0 && (*deque)[0] < s.baseIndex {
+		*deque = (*deque)[1:]
+	}
+}
+
+func (s *StochasticOscillator) dropOutdatedIndices() {
+	for len(s.highDeque) > 0 && s.highDeque[0] < s.baseIndex {
+		s.highDeque = s.highDeque[1:]
+	}
+	for len(s.lowDeque) > 0 && s.lowDeque[0] < s.baseIndex {
+		s.lowDeque = s.lowDeque[1:]
+	}
 }

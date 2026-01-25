@@ -46,6 +46,10 @@ type MoneyFlowIndex struct {
 	mfiValues []float64
 	lastValue float64
 	config    config.IndicatorConfig
+
+	flows       []float64 // signed money flow for each bar after the first
+	positiveSum float64
+	negativeSum float64
 }
 
 // NewMoneyFlowIndex creates a MFI instance with the default period (5) and
@@ -95,13 +99,16 @@ func (mfi *MoneyFlowIndex) Add(high, low, close, volume float64) error {
 	mfi.closes = append(mfi.closes, close)
 	mfi.volumes = append(mfi.volumes, volume)
 
-	if len(mfi.closes) >= mfi.period+1 {
-		val, err := mfi.calculateMFI()
-		if err != nil {
-			return fmt.Errorf("calculateMFI failed: %w", err)
+	// Update rolling money‑flow sums once we have a previous close to compare to.
+	if len(mfi.closes) >= 2 {
+		flow := mfi.moneyFlow(len(mfi.closes) - 1)
+		mfi.pushFlow(flow)
+
+		if len(mfi.flows) >= mfi.period {
+			val := mfi.currentMFI()
+			mfi.mfiValues = append(mfi.mfiValues, val)
+			mfi.lastValue = val
 		}
-		mfi.mfiValues = append(mfi.mfiValues, val)
-		mfi.lastValue = val
 	}
 	mfi.trimSlices()
 	return nil
@@ -254,6 +261,9 @@ func (mfi *MoneyFlowIndex) Reset() {
 	// Empty the computed MFI buffer and clear the cached last value.
 	mfi.mfiValues = mfi.mfiValues[:0]
 	mfi.lastValue = 0
+	mfi.flows = mfi.flows[:0]
+	mfi.positiveSum = 0
+	mfi.negativeSum = 0
 }
 
 // IsDivergence detects classic bullish or bearish divergence between price
@@ -386,3 +396,62 @@ func (mfi *MoneyFlowIndex) GetPlotData() ([]core.PlotData, error) {
 
 // GetValues returns a copy of the raw MFI values slice.
 func (mfi *MoneyFlowIndex) GetValues() []float64 { return core.CopySlice(mfi.mfiValues) }
+
+// moneyFlow returns the signed money flow for the candle at idx (idx refers to
+// the position inside the internal slices).
+func (mfi *MoneyFlowIndex) moneyFlow(idx int) float64 {
+	typicalPrice := (mfi.highs[idx] + mfi.lows[idx] + mfi.closes[idx]) / 3
+	scaledVolume := mfi.volumes[idx] / mfi.config.MFIVolumeScale
+	rawMoneyFlow := typicalPrice * scaledVolume
+
+	prevClose := mfi.closes[idx-1]
+	switch {
+	case mfi.closes[idx] > prevClose:
+		return rawMoneyFlow
+	case mfi.closes[idx] < prevClose:
+		return -rawMoneyFlow
+	default:
+		return 0
+	}
+}
+
+// pushFlow maintains the rolling money‑flow window and running sums.
+func (mfi *MoneyFlowIndex) pushFlow(flow float64) {
+	if flow > 0 {
+		mfi.positiveSum += flow
+	} else if flow < 0 {
+		mfi.negativeSum -= flow // flow is negative
+	}
+
+	mfi.flows = append(mfi.flows, flow)
+	if len(mfi.flows) > mfi.period {
+		removed := mfi.flows[0]
+		mfi.flows = mfi.flows[1:]
+		if removed > 0 {
+			mfi.positiveSum -= removed
+			if mfi.positiveSum < 0 {
+				mfi.positiveSum = 0
+			}
+		} else if removed < 0 {
+			mfi.negativeSum += removed // removed is negative
+			if mfi.negativeSum < 0 {
+				mfi.negativeSum = 0
+			}
+		}
+	}
+}
+
+// currentMFI derives the Money Flow Index from the rolling sums.
+func (mfi *MoneyFlowIndex) currentMFI() float64 {
+	switch {
+	case mfi.positiveSum == 0 && mfi.negativeSum == 0:
+		return 50
+	case mfi.negativeSum == 0 && mfi.positiveSum > 0:
+		return 100
+	case mfi.positiveSum == 0 && mfi.negativeSum > 0:
+		return 0
+	}
+	moneyRatio := mfi.positiveSum / mfi.negativeSum
+	mmfi := 100 - (100 / (1 + moneyRatio))
+	return core.Clamp(mmfi, 0, 100)
+}

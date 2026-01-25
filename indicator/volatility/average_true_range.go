@@ -17,6 +17,10 @@ type AverageTrueRange struct {
 	atrValues     []float64
 	lastValue     float64
 	validateClose bool // optional validation of close price against high/low
+
+	// Rolling true range state (for O(1) ATR updates)
+	trQueue []float64
+	trSum   float64
 }
 
 /*
@@ -47,6 +51,7 @@ func NewAverageTrueRangeWithParams(period int, opts ...ATROption) (*AverageTrueR
 		lows:          make([]float64, 0, period+1),
 		closes:        make([]float64, 0, period+1),
 		atrValues:     make([]float64, 0, period),
+		trQueue:       make([]float64, 0, period),
 		validateClose: true, // enabled by default
 	}
 	for _, opt := range opts {
@@ -89,13 +94,9 @@ func (atr *AverageTrueRange) AddCandle(high, low, close float64) error {
 	atr.closes = append(atr.closes, close)
 
 	// Compute ATR once we have period+1 closing prices.
-	if len(atr.closes) >= atr.period+1 {
-		val, err := atr.calculateATR()
-		if err != nil {
-			return err
-		}
-		atr.atrValues = append(atr.atrValues, val)
-		atr.lastValue = val
+	if len(atr.closes) >= 2 {
+		currentTR := atr.trueRange(len(atr.closes) - 1)
+		atr.pushTrueRange(currentTR)
 	}
 	atr.trimSlices()
 	return nil
@@ -117,6 +118,8 @@ func (atr *AverageTrueRange) Reset() {
 	atr.closes = atr.closes[:0]
 	atr.atrValues = atr.atrValues[:0]
 	atr.lastValue = 0
+	atr.trQueue = atr.trQueue[:0]
+	atr.trSum = 0
 }
 
 // SetPeriod changes the look‑back period. All historic data is discarded because
@@ -165,6 +168,29 @@ func (atr *AverageTrueRange) calculateATR() (float64, error) {
 		sumTR += atr.trueRange(i)
 	}
 	return sumTR / float64(atr.period), nil
+}
+
+// pushTrueRange maintains the rolling true-range window and updates ATR in O(1).
+func (atr *AverageTrueRange) pushTrueRange(tr float64) {
+	atr.trSum += tr
+	atr.trQueue = append(atr.trQueue, tr)
+
+	// Keep only the most recent `period` true ranges.
+	if len(atr.trQueue) > atr.period {
+		removed := atr.trQueue[0]
+		atr.trQueue = atr.trQueue[1:]
+		atr.trSum -= removed
+	}
+
+	// Only produce an ATR value when the window is full (requires period+1 closes).
+	if len(atr.trQueue) == atr.period {
+		if len(atr.atrValues) == 0 {
+			atr.lastValue = atr.trSum / float64(atr.period)
+		} else {
+			atr.lastValue = ((atr.lastValue * float64(atr.period-1)) + tr) / float64(atr.period)
+		}
+		atr.atrValues = append(atr.atrValues, atr.lastValue)
+	}
 }
 
 /* ---------- Optional getters (defensive copies) ---------- */

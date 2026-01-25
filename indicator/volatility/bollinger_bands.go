@@ -2,6 +2,7 @@ package volatility
 
 import (
 	"errors"
+	"math"
 
 	"github.com/evdnx/goti/indicator/core"
 )
@@ -22,9 +23,11 @@ type BollingerBands struct {
 	middle []float64
 	lower  []float64
 
-	lastUpper  float64
-	lastMiddle float64
-	lastLower  float64
+	runningSum   float64
+	runningSumSq float64
+	lastUpper    float64
+	lastMiddle   float64
+	lastLower    float64
 }
 
 // NewBollingerBands creates a Bollinger Bands calculator with default settings.
@@ -58,16 +61,28 @@ func (b *BollingerBands) Add(close float64) error {
 		return errors.New("invalid price")
 	}
 	b.closes = append(b.closes, close)
+	b.runningSum += close
+	b.runningSumSq += close * close
+
+	// Maintain a fixed-size window so updates are O(1).
+	if len(b.closes) > b.period {
+		removed := b.closes[0]
+		b.closes = b.closes[1:]
+		b.runningSum -= removed
+		b.runningSumSq -= removed * removed
+	}
 
 	if len(b.closes) >= b.period {
-		start := len(b.closes) - b.period
-		window := b.closes[start:]
-		sum := 0.0
-		for _, v := range window {
-			sum += v
+		mean := b.runningSum / float64(b.period)
+
+		std := 0.0
+		if b.period > 1 {
+			variance := (b.runningSumSq - (b.runningSum*b.runningSum)/float64(b.period)) / float64(b.period-1)
+			if variance < 0 {
+				variance = 0 // guard against negative zero/rounding
+			}
+			std = math.Sqrt(variance)
 		}
-		mean := sum / float64(b.period)
-		std := core.CalculateStandardDeviation(window, mean)
 
 		upper := mean + b.multiplier*std
 		lower := mean - b.multiplier*std
@@ -99,6 +114,8 @@ func (b *BollingerBands) Reset() {
 	b.upper = b.upper[:0]
 	b.middle = b.middle[:0]
 	b.lower = b.lower[:0]
+	b.runningSum = 0
+	b.runningSumSq = 0
 	b.lastUpper, b.lastMiddle, b.lastLower = 0, 0, 0
 }
 

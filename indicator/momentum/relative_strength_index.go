@@ -98,32 +98,30 @@ func (rsi *RelativeStrengthIndex) calculateRSI() (float64, error) {
 	if len(rsi.closes) < rsi.period+1 {
 		return 0, fmt.Errorf("insufficient data: need %d, have %d", rsi.period+1, len(rsi.closes))
 	}
-	// Slice containing exactly (period+1) most‑recent closes.
-	startIdx := len(rsi.closes) - rsi.period - 1
-	closes := rsi.closes[startIdx:]
-
-	// Sum gains and losses over the period.
-	gainSum, lossSum := 0.0, 0.0
-	for i := 1; i <= rsi.period; i++ {
-		diff := closes[i] - closes[i-1]
-		if diff > 0 {
-			gainSum += diff
-		} else if diff < 0 {
-			lossSum -= diff // make loss positive
-		}
-	}
 
 	// First RSI – seed the smoothed averages with simple means.
 	if len(rsi.rsiValues) == 0 {
+		// Slice containing exactly (period+1) most‑recent closes.
+		startIdx := len(rsi.closes) - rsi.period - 1
+		closes := rsi.closes[startIdx:]
+
+		gainSum, lossSum := 0.0, 0.0
+		for i := 1; i <= rsi.period; i++ {
+			diff := closes[i] - closes[i-1]
+			if diff > 0 {
+				gainSum += diff
+			} else if diff < 0 {
+				lossSum -= diff // make loss positive
+			}
+		}
 		rsi.avgGain = gainSum / float64(rsi.period)
 		rsi.avgLoss = lossSum / float64(rsi.period)
 	} else {
 		// Wilder smoothing: incorporate the *single* most‑recent gain/loss.
-		// Note: gainSum/lossSum represent the totals for the most recent period;
-		// we need the *individual* gain/loss of the newest bar only.
-		// The newest bar is the last difference in the slice.
+		last := rsi.closes[len(rsi.closes)-1]
+		prev := rsi.closes[len(rsi.closes)-2]
+		lastDiff := last - prev
 		newGain, newLoss := 0.0, 0.0
-		lastDiff := closes[rsi.period] - closes[rsi.period-1]
 		if lastDiff > 0 {
 			newGain = lastDiff
 		} else if lastDiff < 0 {
