@@ -25,6 +25,8 @@ type BollingerBands struct {
 
 	runningSum   float64
 	runningSumSq float64
+	sumComp      float64 // Kahan compensation for runningSum
+	sumSqComp    float64 // Kahan compensation for runningSumSq
 	lastUpper    float64
 	lastMiddle   float64
 	lastLower    float64
@@ -61,15 +63,15 @@ func (b *BollingerBands) Add(close float64) error {
 		return errors.New("invalid price")
 	}
 	b.closes = append(b.closes, close)
-	b.runningSum += close
-	b.runningSumSq += close * close
+	b.kahanAdd(close)
+	b.kahanAddSq(close)
 
 	// Maintain a fixed-size window so updates are O(1).
 	if len(b.closes) > b.period {
 		removed := b.closes[0]
 		b.closes = b.closes[1:]
-		b.runningSum -= removed
-		b.runningSumSq -= removed * removed
+		b.kahanAdd(-removed)
+		b.kahanAddSq(-removed)
 	}
 
 	if len(b.closes) >= b.period {
@@ -116,6 +118,8 @@ func (b *BollingerBands) Reset() {
 	b.lower = b.lower[:0]
 	b.runningSum = 0
 	b.runningSumSq = 0
+	b.sumComp = 0
+	b.sumSqComp = 0
 	b.lastUpper, b.lastMiddle, b.lastLower = 0, 0, 0
 }
 
@@ -166,4 +170,20 @@ func (b *BollingerBands) trimSlices() {
 	b.upper = core.KeepLast(b.upper, maxKeep)
 	b.middle = core.KeepLast(b.middle, maxKeep)
 	b.lower = core.KeepLast(b.lower, maxKeep)
+}
+
+// Kahan compensated addition for runningSum.
+func (b *BollingerBands) kahanAdd(v float64) {
+	y := v - b.sumComp
+	t := b.runningSum + y
+	b.sumComp = (t - b.runningSum) - y
+	b.runningSum = t
+}
+
+// Kahan compensated addition for runningSumSq.
+func (b *BollingerBands) kahanAddSq(v float64) {
+	y := v*v - b.sumSqComp
+	t := b.runningSumSq + y
+	b.sumSqComp = (t - b.runningSumSq) - y
+	b.runningSumSq = t
 }

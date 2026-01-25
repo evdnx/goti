@@ -136,41 +136,10 @@ func (mfi *MoneyFlowIndex) trimSlices() {
 //   - if only positive money flow exists               → 100 (max)
 //   - if only negative money flow exists               → 0   (min)
 func (mfi *MoneyFlowIndex) calculateMFI() (float64, error) {
-	if len(mfi.closes) < mfi.period+1 {
+	if len(mfi.flows) < mfi.period {
 		return 0, fmt.Errorf("insufficient data: need %d, have %d", mfi.period+1, len(mfi.closes))
 	}
-	startIdx := len(mfi.closes) - mfi.period - 1
-	highs := mfi.highs[startIdx:]
-	lows := mfi.lows[startIdx:]
-	closes := mfi.closes[startIdx:]
-	volumes := mfi.volumes[startIdx:]
-
-	positiveMF, negativeMF := 0.0, 0.0
-	for i := 1; i <= mfi.period; i++ {
-		typicalPrice := (highs[i] + lows[i] + closes[i]) / 3
-		scaledVolume := volumes[i] / mfi.config.MFIVolumeScale
-		rawMoneyFlow := typicalPrice * scaledVolume
-
-		if closes[i] > closes[i-1] {
-			positiveMF += rawMoneyFlow
-		} else if closes[i] < closes[i-1] {
-			negativeMF += rawMoneyFlow
-		}
-	}
-
-	// Edge‑case handling
-	switch {
-	case positiveMF == 0 && negativeMF == 0:
-		return 50, nil
-	case negativeMF == 0 && positiveMF > 0:
-		return 100, nil
-	case positiveMF == 0 && negativeMF > 0:
-		return 0, nil
-	}
-
-	moneyRatio := positiveMF / negativeMF
-	mmfi := 100 - (100 / (1 + moneyRatio))
-	return core.Clamp(mmfi, 0, 100), nil
+	return mfi.currentMFI(), nil
 }
 
 // Calculate returns the most recent MFI value (or an error if none have been
