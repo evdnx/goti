@@ -433,50 +433,87 @@ func (suite *OptimizedScalpingIndicatorSuite) GetCombinedSignal() (string, error
 
 	volRatio := suite.currentVolRatio()
 
-	// Base thresholds calibrated for scalping sensitivity (optimized for 6 indicators)
-	strong := 1.8
-	normal := 0.9
-	weak := 0.35
+	// Base thresholds recalibrated for 6-indicator suite post-ADMO-fix.
+	// With cleaner crossover signals, we can use tighter thresholds for
+	// higher-quality entries while still capturing genuine moves.
+	strong := 1.5
+	normal := 0.7
+	weak := 0.3
 
-	// Volatility-adaptive thresholds:
-	// - High vol (>0.5%): loosen thresholds, big moves need less confirmation
-	// - Low vol (<0.15%): tighten thresholds, avoid noise in tight ranges
-	// - Very low vol (<0.08%): require extra confirmation, chop zone
+	// Volatility-adaptive thresholds with finer granularity:
 	switch {
+	case volRatio > 0.008:
+		// Very high volatility: big moves, signals are reliable
+		strong -= 0.35
+		normal -= 0.25
+		weak -= 0.15
 	case volRatio > 0.005:
 		// High volatility: signals are more reliable, loosen thresholds
-		strong -= 0.3
-		normal -= 0.2
+		strong -= 0.2
+		normal -= 0.15
 		weak -= 0.1
 	case volRatio > 0.003:
 		// Normal-high volatility
-		strong -= 0.15
-		normal -= 0.1
+		strong -= 0.1
+		normal -= 0.05
+	case volRatio < 0.0006:
+		// Ultra-low volatility: dead zone, almost always chop
+		strong += 0.6
+		normal += 0.5
+		weak += 0.35
 	case volRatio < 0.0008:
 		// Very low volatility: chop zone, require strong confluence
-		strong += 0.4
-		normal += 0.3
+		strong += 0.35
+		normal += 0.25
 		weak += 0.2
 	case volRatio < 0.0015:
 		// Low volatility: tighten thresholds
-		strong += 0.2
-		normal += 0.15
-		weak += 0.1
+		strong += 0.15
+		normal += 0.1
+		weak += 0.05
 	}
 
-	// Momentum confirmation boost: if price has moved in the same direction
-	// for 2+ bars, boost the corresponding signal slightly
+	// Multi-bar momentum confirmation with acceleration
 	if suite.closeCount >= 3 {
-		if suite.lastClose > suite.prevClose && suite.prevClose > suite.prev2Close {
+		momentum1 := suite.lastClose - suite.prevClose
+		momentum2 := suite.prevClose - suite.prev2Close
+
+		if momentum1 > 0 && momentum2 > 0 {
 			// Two consecutive up closes: momentum confirmation for bulls
 			if net > 0 {
-				net += 0.15
+				boost := 0.2
+				// Accelerating momentum: each bar bigger than the last
+				if momentum1 > momentum2 {
+					boost = 0.35
+				}
+				net += boost
 			}
-		} else if suite.lastClose < suite.prevClose && suite.prevClose < suite.prev2Close {
+		} else if momentum1 < 0 && momentum2 < 0 {
 			// Two consecutive down closes: momentum confirmation for bears
 			if net < 0 {
-				net -= 0.15
+				boost := 0.2
+				if momentum1 < momentum2 { // accelerating downward
+					boost = 0.35
+				}
+				net -= boost
 			}
+		}
+	}
+
+	// Signal confluence amplifier: when net score is very strong relative to
+	// bull+bear total, it means most indicators agree → boost confidence
+	total := bull + bear
+	if total > 0 {
+		agreement := 0.0
+		if net > 0 {
+			agreement = bull / total // 0.5 = split, 1.0 = full agreement
+		} else if net < 0 {
+			agreement = bear / total
+		}
+		// When >80% of signal weight agrees, amplify the net by up to 20%
+		if agreement > 0.8 {
+			amplifier := 1.0 + (agreement-0.8)*1.0 // up to +20% at 100% agreement
+			net *= amplifier
 		}
 	}
 
@@ -530,9 +567,10 @@ func (suite *OptimizedScalpingIndicatorSuite) IsBearish() (bool, error) {
 // Uses the cached bull score normalized against the maximum expected score
 func (suite *OptimizedScalpingIndicatorSuite) GetBullScore() (float64, error) {
 	bull, _ := suite.computeScores()
-	// Max expected bull score is approximately 5.0 (sum of all bullish weights)
-	// Normalize to 0-1 range with diminishing returns above 3.0
-	normalized := bull / 5.0
+	// Max expected bull score is approximately 7.0 (includes divergence, confluence,
+	// MACD line/signal crossover, magnitude-based zones).
+	// Normalize to 0-1 range.
+	normalized := bull / 7.0
 	if normalized > 1.0 {
 		normalized = 1.0
 	}
@@ -546,9 +584,10 @@ func (suite *OptimizedScalpingIndicatorSuite) GetBullScore() (float64, error) {
 // Uses the cached bear score normalized against the maximum expected score
 func (suite *OptimizedScalpingIndicatorSuite) GetBearScore() (float64, error) {
 	_, bear := suite.computeScores()
-	// Max expected bear score is approximately 5.0 (sum of all bearish weights)
-	// Normalize to 0-1 range with diminishing returns above 3.0
-	normalized := bear / 5.0
+	// Max expected bear score is approximately 7.0 (includes divergence, confluence,
+	// MACD line/signal crossover, magnitude-based zones).
+	// Normalize to 0-1 range.
+	normalized := bear / 7.0
 	if normalized > 1.0 {
 		normalized = 1.0
 	}
@@ -1104,6 +1143,9 @@ func (suite *ScalpingIndicatorSuite) currentVolRatio() float64 {
 //   - Crossover signals (high weight: first to signal reversals)
 //   - Extreme zone readings (medium weight: mean reversion setups)
 //   - Trend confirmation (lower weight: filters false signals)
+//   - Divergence signals (medium weight: contrarian reversal edge)
+//   - Signal confluence (bonus when multiple indicators agree)
+//   - MACD line/signal crossover (earlier than histogram-only)
 func (suite *OptimizedScalpingIndicatorSuite) computeScores() (float64, float64) {
 	if suite.cachedScoresValid {
 		return suite.cachedBullScore, suite.cachedBearScore
@@ -1114,10 +1156,15 @@ func (suite *OptimizedScalpingIndicatorSuite) computeScores() (float64, float64)
 	// ---- Regime detection for profit/risk tilt ----
 	volRatio := suite.currentVolRatio()
 	isChop := volRatio < 0.0012 // low volatility regime → avoid chasing trends
+
+	// Track indicator-level agreement for confluence bonus
+	var bullIndicators, bearIndicators int
+
 	trendBias := 0.0
 	strongTrend := false
-	if vals := suite.vwao.GetVWAOValues(); len(vals) > 0 {
-		last := vals[len(vals)-1]
+	vwaoVals := suite.vwao.GetVWAOValues()
+	if len(vwaoVals) > 0 {
+		last := vwaoVals[len(vwaoVals)-1]
 		if last > 60 {
 			trendBias += 1
 			strongTrend = true
@@ -1133,116 +1180,198 @@ func (suite *OptimizedScalpingIndicatorSuite) computeScores() (float64, float64)
 			trendBias -= 0.5
 		}
 	}
+
 	trendScale := 1.0
 	if isChop {
-		trendScale = 0.7
+		trendScale = 0.6 // stronger de-emphasis in chop (was 0.7)
 	}
+
+	// Trend-following bonus: stronger reward for trading with confirmed trend
 	if strongTrend {
 		if trendBias > 0 {
-			bull += 0.2 // favour signals in the prevailing strong trend
+			bull += 0.3 // favour bullish signals in strong uptrend
 		} else if trendBias < 0 {
-			bear += 0.2
+			bear += 0.3 // favour bearish signals in strong downtrend
 		}
 	}
 
 	/* ---- Adaptive DEMA Momentum Oscillator (volatility-adaptive momentum) ---- */
 	// ADMO crossovers are primary scalping signals - adapts to volatility changes
+	admoVals := suite.admo.GetAMDOValues()
 	if bullish, err := suite.admo.IsBullishCrossover(); err == nil && bullish {
-		bull += 1.3 * trendScale // Slightly higher weight than RSI due to adaptive nature
+		weight := 1.3 * trendScale
+		// Stronger weight when trend-aligned
+		if trendBias > 0 {
+			weight *= 1.15
+		}
+		bull += weight
+		bullIndicators++
 	}
 	if bearish, err := suite.admo.IsBearishCrossover(); err == nil && bearish {
-		bear += 1.3 * trendScale
+		weight := 1.3 * trendScale
+		if trendBias < 0 {
+			weight *= 1.15
+		}
+		bear += weight
+		bearIndicators++
 	}
-	// ADMO overbought/oversold zones
-	admoVals := suite.admo.GetAMDOValues()
+
+	// ADMO overbought/oversold zones with magnitude scaling
 	if len(admoVals) > 0 {
 		lastADMO := admoVals[len(admoVals)-1]
-		// Check against config thresholds (default ±1.0, but we set ±0.8 for scalping)
+		// Graduated scoring based on how extreme the reading is
 		if lastADMO < -0.8 {
-			bull += 0.6 // Oversold zone
-		} else if lastADMO > 0.8 {
-			bear += 0.6 // Overbought zone
-		}
-		// Strong momentum signals
-		if lastADMO > 1.5 {
-			bear += 0.3 // Very overbought
-		} else if lastADMO < -1.5 {
-			bull += 0.3 // Very oversold
-		}
-	}
-
-	/* ---- Volume Weighted Aroon Oscillator (volume-backed trend strength) ---- */
-	// VWAO provides volume-weighted trend signals - excellent for scalping
-	if bullish, err := suite.vwao.IsBullishCrossover(); err == nil && bullish {
-		bull += 1.2 * trendScale // Strong signal: volume-weighted trend shift
-	}
-	if bearish, err := suite.vwao.IsBearishCrossover(); err == nil && bearish {
-		bear += 1.2 * trendScale
-	}
-
-	// Cache VWAO values (accessed multiple times)
-	vwaoVals := suite.vwao.GetVWAOValues()
-	if len(vwaoVals) > 0 {
-		lastVWAO := vwaoVals[len(vwaoVals)-1]
-
-		// Strong trend detection
-		if strong, err := suite.vwao.IsStrongTrend(); err == nil && strong {
-			if lastVWAO > 60 {
-				bull += 0.7 // Strong uptrend with volume
-			} else if lastVWAO < -60 {
-				bear += 0.7 // Strong downtrend with volume
+			intensity := (-lastADMO - 0.8) / 0.7 // 0→1 over [-0.8, -1.5]
+			if intensity > 1.0 {
+				intensity = 1.0
 			}
-		}
-		// VWAO direction bias
-		if lastVWAO > 30 {
-			bull += 0.3 // Moderate bullish bias
-		} else if lastVWAO < -30 {
-			bear += 0.3 // Moderate bearish bias
-		}
-	}
-
-	/* ---- MACD (histogram cross) ---- */
-	histVals := suite.macd.GetHistogramValues()
-	if len(histVals) >= 2 {
-		histLen := len(histVals)
-		curHist := histVals[histLen-1]
-		prevHist := histVals[histLen-2]
-
-		// Histogram zero-line crossover (strong signal)
-		if prevHist < 0 && curHist > 0 {
-			bull += 1.1 * trendScale
-		} else if prevHist > 0 && curHist < 0 {
-			bear += 1.1 * trendScale
+			bull += 0.5 + 0.5*intensity // 0.5 → 1.0 based on extremity
+			bullIndicators++
+		} else if lastADMO > 0.8 {
+			intensity := (lastADMO - 0.8) / 0.7
+			if intensity > 1.0 {
+				intensity = 1.0
+			}
+			bear += 0.5 + 0.5*intensity
+			bearIndicators++
 		}
 
-		// Histogram direction (momentum)
-		if curHist > 0 {
-			bull += 0.25 * trendScale
-		} else if curHist < 0 {
-			bear += 0.25 * trendScale
-		}
-
-		// Histogram momentum acceleration (scalping edge)
-		if histLen >= 3 {
-			prev2Hist := histVals[histLen-3]
-			// Accelerating bullish: histogram increasing
-			if curHist > prevHist && prevHist > prev2Hist && curHist > 0 {
+		// ADMO acceleration: rate of change in ADMO itself
+		if len(admoVals) >= 3 {
+			admoAccel := admoVals[len(admoVals)-1] - admoVals[len(admoVals)-2]
+			prevAdmoAccel := admoVals[len(admoVals)-2] - admoVals[len(admoVals)-3]
+			// Accelerating bullish momentum
+			if admoAccel > 0 && prevAdmoAccel > 0 && lastADMO > 0 {
 				bull += 0.2
 			}
-			// Accelerating bearish: histogram decreasing
-			if curHist < prevHist && prevHist < prev2Hist && curHist < 0 {
+			// Accelerating bearish momentum
+			if admoAccel < 0 && prevAdmoAccel < 0 && lastADMO < 0 {
 				bear += 0.2
 			}
 		}
 	}
 
+	/* ---- Volume Weighted Aroon Oscillator (volume-backed trend strength) ---- */
+	if bullish, err := suite.vwao.IsBullishCrossover(); err == nil && bullish {
+		weight := 1.2 * trendScale
+		if trendBias > 0 {
+			weight *= 1.1
+		}
+		bull += weight
+		bullIndicators++
+	}
+	if bearish, err := suite.vwao.IsBearishCrossover(); err == nil && bearish {
+		weight := 1.2 * trendScale
+		if trendBias < 0 {
+			weight *= 1.1
+		}
+		bear += weight
+		bearIndicators++
+	}
+
+	if len(vwaoVals) > 0 {
+		lastVWAO := vwaoVals[len(vwaoVals)-1]
+
+		// Strong trend detection with graduated scoring
+		if strong, err := suite.vwao.IsStrongTrend(); err == nil && strong {
+			if lastVWAO > 60 {
+				// Scale from 0.5 to 0.9 based on VWAO strength (60→100)
+				strength := (lastVWAO - 60) / 40
+				if strength > 1.0 {
+					strength = 1.0
+				}
+				bull += 0.5 + 0.4*strength
+			} else if lastVWAO < -60 {
+				strength := (-lastVWAO - 60) / 40
+				if strength > 1.0 {
+					strength = 1.0
+				}
+				bear += 0.5 + 0.4*strength
+			}
+		}
+		// VWAO direction bias
+		if lastVWAO > 30 {
+			bull += 0.3
+		} else if lastVWAO < -30 {
+			bear += 0.3
+		}
+	}
+
+	/* ---- MACD (histogram + line/signal crossover) ---- */
+	histVals := suite.macd.GetHistogramValues()
+	macdVals := suite.macd.GetMACDValues()
+	signalVals := suite.macd.GetSignalValues()
+
+	// MACD line / signal line crossover (earlier and more reliable than histogram zero)
+	if len(macdVals) >= 2 && len(signalVals) >= 2 {
+		macdLen := len(macdVals)
+		sigLen := len(signalVals)
+		curMACD := macdVals[macdLen-1]
+		prevMACD := macdVals[macdLen-2]
+		curSig := signalVals[sigLen-1]
+		prevSig := signalVals[sigLen-2]
+
+		// Bullish: MACD crosses above signal
+		if prevMACD <= prevSig && curMACD > curSig {
+			bull += 1.1 * trendScale
+			bullIndicators++
+		}
+		// Bearish: MACD crosses below signal
+		if prevMACD >= prevSig && curMACD < curSig {
+			bear += 1.1 * trendScale
+			bearIndicators++
+		}
+	}
+
+	if len(histVals) >= 2 {
+		histLen := len(histVals)
+		curHist := histVals[histLen-1]
+		prevHist := histVals[histLen-2]
+
+		// Histogram zero-line crossover (confirmation signal)
+		if prevHist < 0 && curHist > 0 {
+			bull += 0.6 * trendScale // reduced from 1.1 (now secondary to line/signal cross)
+		} else if prevHist > 0 && curHist < 0 {
+			bear += 0.6 * trendScale
+		}
+
+		// Histogram direction (momentum)
+		if curHist > 0 {
+			bull += 0.2 * trendScale
+		} else if curHist < 0 {
+			bear += 0.2 * trendScale
+		}
+
+		// Histogram momentum acceleration (scalping edge)
+		if histLen >= 3 {
+			prev2Hist := histVals[histLen-3]
+			if curHist > prevHist && prevHist > prev2Hist && curHist > 0 {
+				bull += 0.25
+			}
+			if curHist < prevHist && prevHist < prev2Hist && curHist < 0 {
+				bear += 0.25
+			}
+
+			// Early warning: histogram decelerating (momentum fading)
+			// Bullish histogram shrinking → bearish hint
+			if curHist > 0 && curHist < prevHist && prevHist < prev2Hist {
+				bear += 0.15 // early exit signal
+			}
+			// Bearish histogram shrinking → bullish hint
+			if curHist < 0 && curHist > prevHist && prevHist > prev2Hist {
+				bull += 0.15
+			}
+		}
+	}
+
 	/* ---- HMA (low-lag trend) ---- */
-	// HMA crossovers are excellent for scalping due to minimal lag
 	if bullish, err := suite.hma.IsBullishCrossover(); err == nil && bullish {
-		bull += 1.1
+		bull += 1.1 * trendScale
+		bullIndicators++
 	}
 	if bearish, err := suite.hma.IsBearishCrossover(); err == nil && bearish {
-		bear += 1.1
+		bear += 1.1 * trendScale
+		bearIndicators++
 	}
 	if dir, err := suite.hma.GetTrendDirection(); err == nil {
 		if dir == "Bullish" {
@@ -1252,8 +1381,7 @@ func (suite *OptimizedScalpingIndicatorSuite) computeScores() (float64, float64)
 		}
 	}
 
-	/* ---- ATR (volatility confirmation) ---- */
-	// Expanding ATR with price movement confirms trend strength
+	/* ---- ATR (volatility confirmation + mean reversion) ---- */
 	if suite.hasClose && suite.prevClose > 0 {
 		atrVals := suite.atr.GetATRValues()
 		if len(atrVals) >= 2 {
@@ -1264,10 +1392,10 @@ func (suite *OptimizedScalpingIndicatorSuite) computeScores() (float64, float64)
 			if prevATR > 0 {
 				atrChange := (lastATR - prevATR) / prevATR
 				// Expanding volatility with directional move = confirmation
-				if atrChange > 0.02 && priceTrend != 0 {
-					boost := 0.2
-					if atrChange > 0.08 {
-						boost = 0.35 // strong volatility expansion
+				if atrChange > 0.015 && priceTrend != 0 { // lowered from 0.02
+					boost := 0.25
+					if atrChange > 0.06 {
+						boost = 0.4 // strong volatility expansion
 					}
 					if priceTrend > 0 {
 						bull += boost
@@ -1276,33 +1404,101 @@ func (suite *OptimizedScalpingIndicatorSuite) computeScores() (float64, float64)
 					}
 				}
 			}
+
+			// ATR-based mean reversion: price extended beyond 2x ATR from
+			// a simple moving mean → likely to revert
+			if lastATR > 0 && suite.closeCount >= 5 {
+				priceMove := suite.lastClose - suite.prevClose
+				if priceMove > 0 && priceMove > 2.0*lastATR {
+					// Overextended up → bearish mean-reversion hint
+					bear += 0.3
+				} else if priceMove < 0 && (-priceMove) > 2.0*lastATR {
+					// Overextended down → bullish mean-reversion hint
+					bull += 0.3
+				}
+			}
 		}
 	}
 
-	/* ---- MFI (volume-backed momentum) ---- */
-	// Volume confirmation is crucial for scalping
+	/* ---- MFI (volume-backed momentum) with magnitude scoring ---- */
 	if bullish, err := suite.mfi.IsBullishCrossover(); err == nil && bullish {
 		bull += 1.0
+		bullIndicators++
 	}
 	if bearish, err := suite.mfi.IsBearishCrossover(); err == nil && bearish {
 		bear += 1.0
+		bearIndicators++
 	}
-	if zone, err := suite.mfi.GetOverboughtOversold(); err == nil {
-		switch zone {
-		case "Oversold":
-			bull += 0.4
-		case "Overbought":
-			bear += 0.4
+	// Magnitude-based zone scoring (more extreme = stronger signal)
+	mfiVals := suite.mfi.GetValues()
+	if len(mfiVals) > 0 {
+		lastMFI := mfiVals[len(mfiVals)-1]
+		if lastMFI < 28 { // below our scalping oversold threshold
+			// Scale: MFI 28→0 gives 0.3→0.8
+			intensity := (28.0 - lastMFI) / 28.0
+			bull += 0.3 + 0.5*intensity
+		} else if lastMFI > 72 { // above our scalping overbought threshold
+			intensity := (lastMFI - 72.0) / 28.0
+			if intensity > 1.0 {
+				intensity = 1.0
+			}
+			bear += 0.3 + 0.5*intensity
+		}
+	}
+
+	/* ---- Divergence signals (contrarian reversal edge) ---- */
+	// Divergence between price and indicators is a strong profit signal that
+	// catches reversals before momentum confirmations fire.
+	if admoDiv, admoSignal := suite.admo.IsDivergence(); admoDiv {
+		if admoSignal == "bullish divergence (price rising while ADMO oversold)" {
+			bull += 0.7
+		} else {
+			bear += 0.7
+		}
+	}
+	if vwaoDiv, vwaoSignal, err := suite.vwao.IsDivergence(); err == nil && vwaoDiv {
+		if vwaoSignal == "Bullish" {
+			bull += 0.6
+		} else if vwaoSignal == "Bearish" {
+			bear += 0.6
+		}
+	}
+	if mfiSignal, err := suite.mfi.IsDivergence(); err == nil && mfiSignal != "none" {
+		if mfiSignal == "bullish" {
+			bull += 0.5
+		} else if mfiSignal == "bearish" {
+			bear += 0.5
 		}
 	}
 
 	/* ---- Price momentum (last close vs previous) ---- */
-	// Simple price direction adds small bias
 	if suite.hasClose && suite.prevClose > 0 {
 		if suite.lastClose > suite.prevClose {
-			bull += 0.2
+			bull += 0.15
 		} else if suite.lastClose < suite.prevClose {
-			bear += 0.2
+			bear += 0.15
+		}
+	}
+
+	// ---- Signal confluence bonus ----
+	// When 3+ distinct indicators fire crossovers in the same direction,
+	// add a confluence bonus — this filters noise and strongly boosts
+	// high-confidence setups.
+	if bullIndicators >= 3 {
+		bull += 0.4 * float64(bullIndicators-2) // +0.4 for 3, +0.8 for 4, etc.
+	}
+	if bearIndicators >= 3 {
+		bear += 0.4 * float64(bearIndicators-2)
+	}
+
+	// ---- Anti-trend counter: penalise signals against strong prevailing trend ----
+	if strongTrend {
+		if trendBias > 0 && bear > bull {
+			// Bearish signals fighting a strong uptrend → dampen
+			bear *= 0.8
+		} else if trendBias < 0 && bull > bear {
+			// Bullish signals fighting a strong downtrend → dampen
+			bull *= 0.8
 		}
 	}
 

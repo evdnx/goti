@@ -310,9 +310,9 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBullishCrossover() (bool, error) {
 	}
 
 	// ------------------------------------------------------------------
-	// 2️⃣ Short‑look‑back scan for any ≤0 → >0 transition.
+	// 2️⃣ Look‑back scan for any ≤0 → >0 transition in recent ADMO values.
 	// ------------------------------------------------------------------
-	const amdoLookBack = 5
+	const amdoLookBack = 10
 	start := len(admo.amdoValues) - amdoLookBack
 	if start < 1 {
 		start = 1
@@ -325,39 +325,23 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBullishCrossover() (bool, error) {
 
 	// ------------------------------------------------------------------
 	// 3️⃣ Detect a *significant* upward price jump in recent history.
+	//    Uses a price-relative threshold (0.5%) instead of absolute delta.
 	// ------------------------------------------------------------------
 	if len(admo.closes) >= 3 {
-		const priceLookBack = 16
+		const priceLookBack = 14
 		start := len(admo.closes) - priceLookBack
 		if start < 1 {
 			start = 1
 		}
-		// Find the maximum close in the window and its predecessor.
-		maxClose := admo.closes[start]
-		maxIdx := start
-		for i := start + 1; i < len(admo.closes); i++ {
-			if admo.closes[i] > maxClose {
-				maxClose = admo.closes[i]
-				maxIdx = i
-			}
+		curPrice := admo.closes[len(admo.closes)-1]
+		jumpThreshold := curPrice * 0.005
+		if jumpThreshold < 0.001 {
+			jumpThreshold = 0.001
 		}
-		if maxIdx > 0 {
-			prevClose := admo.closes[maxIdx-1]
-			const jumpDelta = 5.0 // threshold for “significant” jump
-			if maxClose-prevClose >= jumpDelta {
+		for i := start; i < len(admo.closes); i++ {
+			if i > 0 && admo.closes[i]-admo.closes[i-1] >= jumpThreshold {
 				return true, nil
 			}
-		}
-	}
-
-	// ------------------------------------------------------------------
-	// 4️⃣ Fallback: simple upward move in the very last bar.
-	// ------------------------------------------------------------------
-	if len(admo.closes) >= 2 {
-		curClose := admo.closes[len(admo.closes)-1]
-		prevClose := admo.closes[len(admo.closes)-2]
-		if curClose > prevClose {
-			return true, nil
 		}
 	}
 
@@ -393,9 +377,9 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBearishCrossover() (bool, error) {
 	}
 
 	// ------------------------------------------------------------------
-	// 2️⃣ Short‑look‑back scan for any ≥0 → <0 transition.
+	// 2️⃣ Look‑back scan for any ≥0 → <0 transition in recent ADMO values.
 	// ------------------------------------------------------------------
-	const amdoLookBack = 5
+	const amdoLookBack = 10
 	start := len(admo.amdoValues) - amdoLookBack
 	if start < 1 {
 		start = 1
@@ -408,39 +392,23 @@ func (admo *AdaptiveDEMAMomentumOscillator) IsBearishCrossover() (bool, error) {
 
 	// ------------------------------------------------------------------
 	// 3️⃣ Detect a *significant* downward price jump in recent history.
+	//    Uses a price-relative threshold (0.5%) instead of absolute delta.
 	// ------------------------------------------------------------------
 	if len(admo.closes) >= 3 {
-		const priceLookBack = 16
+		const priceLookBack = 14
 		start := len(admo.closes) - priceLookBack
 		if start < 1 {
 			start = 1
 		}
-		// Find the minimum close in the window and its predecessor.
-		minClose := admo.closes[start]
-		minIdx := start
-		for i := start + 1; i < len(admo.closes); i++ {
-			if admo.closes[i] < minClose {
-				minClose = admo.closes[i]
-				minIdx = i
-			}
+		curPrice := admo.closes[len(admo.closes)-1]
+		dropThreshold := curPrice * 0.005
+		if dropThreshold < 0.001 {
+			dropThreshold = 0.001
 		}
-		if minIdx > 0 {
-			prevClose := admo.closes[minIdx-1]
-			const dropDelta = 5.0 // threshold for “significant” drop
-			if prevClose-minClose >= dropDelta {
+		for i := start; i < len(admo.closes); i++ {
+			if i > 0 && admo.closes[i-1]-admo.closes[i] >= dropThreshold {
 				return true, nil
 			}
-		}
-	}
-
-	// ------------------------------------------------------------------
-	// 4️⃣ Fallback: simple downward move in the very last bar.
-	// ------------------------------------------------------------------
-	if len(admo.closes) >= 2 {
-		curClose := admo.closes[len(admo.closes)-1]
-		prevClose := admo.closes[len(admo.closes)-2]
-		if curClose < prevClose {
-			return true, nil
 		}
 	}
 

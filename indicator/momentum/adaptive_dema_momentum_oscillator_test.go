@@ -59,14 +59,25 @@ func TestADMO_BasicFlow(t *testing.T) {
 func TestADMO_SinglePointCrossover(t *testing.T) {
 	osc, _ := NewAdaptiveDEMAMomentumOscillator()
 
-	// First bar – positive typical price => positive ADMO after enough data
-	high, low, close := 10.0, 9.0, 9.5
-	if err := osc.Add(high, low, close); err != nil {
-		t.Fatalf("first add failed: %v", err)
+	// Build a scenario with a genuine ADMO zero-line crossover:
+	// 1. Warm up with flat data so ADMO stabilises near zero
+	// 2. Sharp dip to push ADMO negative
+	// 3. Sharp recovery to push ADMO positive (crossing zero)
+	base := 100.0
+	for range DefaultLength + DefaultStdevLength {
+		osc.Add(base+1, base-1, base)
 	}
-	// Need to push enough extra bars to fill the internal windows
-	for i := range DefaultLength + DefaultStdevLength {
-		osc.Add(high+float64(i)*0.01, low+float64(i)*0.01, close+float64(i)*0.01)
+
+	// Sharp dip: push ADMO negative
+	for range 5 {
+		base -= 3.0
+		osc.Add(base+1, base-1, base)
+	}
+
+	// Sharp recovery: push ADMO back positive (zero-line cross)
+	for range 8 {
+		base += 4.0
+		osc.Add(base+1, base-1, base)
 	}
 
 	bull, err := osc.IsBullishCrossover()
@@ -74,20 +85,20 @@ func TestADMO_SinglePointCrossover(t *testing.T) {
 		t.Fatalf("bullish check error: %v", err)
 	}
 	if !bull {
-		t.Fatalf("expected bullish crossover on single‑point window")
+		t.Fatalf("expected bullish crossover after dip-then-recovery")
 	}
 
 	// Force a negative move to trigger bearish
-	osc.Add(high-5, low-5, close-5)
-	for i := range DefaultLength + DefaultStdevLength {
-		osc.Add(high-5-float64(i)*0.01, low-5-float64(i)*0.01, close-5-float64(i)*0.01)
+	for range 8 {
+		base -= 4.0
+		osc.Add(base+1, base-1, base)
 	}
 	bear, err := osc.IsBearishCrossover()
 	if err != nil {
 		t.Fatalf("bearish check error: %v", err)
 	}
 	if !bear {
-		t.Fatalf("expected bearish crossover on single‑point window")
+		t.Fatalf("expected bearish crossover after recovery-then-drop")
 	}
 }
 
