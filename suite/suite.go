@@ -503,6 +503,61 @@ func (suite *OptimizedScalpingIndicatorSuite) GetCombinedBearishSignal() (string
 	return suite.GetCombinedSignal()
 }
 
+// ---------------------------------------------------------------------
+// TechnicalSignalProvider interface implementation for OptimizedScalpingIndicatorSuite
+// These methods allow integration with gomarketintel's SignalAggregator
+// ---------------------------------------------------------------------
+
+// IsBullish returns true if the combined signal indicates bullish bias
+func (suite *OptimizedScalpingIndicatorSuite) IsBullish() (bool, error) {
+	signal, err := suite.GetCombinedSignal()
+	if err != nil {
+		return false, err
+	}
+	return signal == "Strong Bullish" || signal == "Bullish" || signal == "Weak Bullish", nil
+}
+
+// IsBearish returns true if the combined signal indicates bearish bias
+func (suite *OptimizedScalpingIndicatorSuite) IsBearish() (bool, error) {
+	signal, err := suite.GetCombinedSignal()
+	if err != nil {
+		return false, err
+	}
+	return signal == "Strong Bearish" || signal == "Bearish" || signal == "Weak Bearish", nil
+}
+
+// GetBullScore returns a 0-1 score representing bullish signal strength
+// Uses the cached bull score normalized against the maximum expected score
+func (suite *OptimizedScalpingIndicatorSuite) GetBullScore() (float64, error) {
+	bull, _ := suite.computeScores()
+	// Max expected bull score is approximately 5.0 (sum of all bullish weights)
+	// Normalize to 0-1 range with diminishing returns above 3.0
+	normalized := bull / 5.0
+	if normalized > 1.0 {
+		normalized = 1.0
+	}
+	if normalized < 0 {
+		normalized = 0
+	}
+	return normalized, nil
+}
+
+// GetBearScore returns a 0-1 score representing bearish signal strength
+// Uses the cached bear score normalized against the maximum expected score
+func (suite *OptimizedScalpingIndicatorSuite) GetBearScore() (float64, error) {
+	_, bear := suite.computeScores()
+	// Max expected bear score is approximately 5.0 (sum of all bearish weights)
+	// Normalize to 0-1 range with diminishing returns above 3.0
+	normalized := bear / 5.0
+	if normalized > 1.0 {
+		normalized = 1.0
+	}
+	if normalized < 0 {
+		normalized = 0
+	}
+	return normalized, nil
+}
+
 // GetDivergenceSignals checks for divergence signals across momentum/volume (optimized).
 func (suite *OptimizedScalpingIndicatorSuite) GetDivergenceSignals() (map[string]string, error) {
 	result := make(map[string]string)
@@ -549,6 +604,61 @@ func (suite *OptimizedScalpingIndicatorSuite) Reset() {
 // GetCombinedBearishSignal mirrors GetCombinedSignal for API parity.
 func (suite *ScalpingIndicatorSuite) GetCombinedBearishSignal() (string, error) {
 	return suite.GetCombinedSignal()
+}
+
+// ---------------------------------------------------------------------
+// TechnicalSignalProvider interface implementation for ScalpingIndicatorSuite
+// These methods allow integration with gomarketintel's SignalAggregator
+// ---------------------------------------------------------------------
+
+// IsBullish returns true if the combined signal indicates bullish bias
+func (suite *ScalpingIndicatorSuite) IsBullish() (bool, error) {
+	signal, err := suite.GetCombinedSignal()
+	if err != nil {
+		return false, err
+	}
+	return signal == "Strong Bullish" || signal == "Bullish" || signal == "Weak Bullish", nil
+}
+
+// IsBearish returns true if the combined signal indicates bearish bias
+func (suite *ScalpingIndicatorSuite) IsBearish() (bool, error) {
+	signal, err := suite.GetCombinedSignal()
+	if err != nil {
+		return false, err
+	}
+	return signal == "Strong Bearish" || signal == "Bearish" || signal == "Weak Bearish", nil
+}
+
+// GetBullScore returns a 0-1 score representing bullish signal strength
+// Uses the cached bull score normalized against the maximum expected score
+func (suite *ScalpingIndicatorSuite) GetBullScore() (float64, error) {
+	bull, _ := suite.computeScores()
+	// Max expected bull score is approximately 6.0 (sum of all bullish weights)
+	// Normalize to 0-1 range with diminishing returns above 4.0
+	normalized := bull / 6.0
+	if normalized > 1.0 {
+		normalized = 1.0
+	}
+	if normalized < 0 {
+		normalized = 0
+	}
+	return normalized, nil
+}
+
+// GetBearScore returns a 0-1 score representing bearish signal strength
+// Uses the cached bear score normalized against the maximum expected score
+func (suite *ScalpingIndicatorSuite) GetBearScore() (float64, error) {
+	_, bear := suite.computeScores()
+	// Max expected bear score is approximately 6.0 (sum of all bearish weights)
+	// Normalize to 0-1 range with diminishing returns above 4.0
+	normalized := bear / 6.0
+	if normalized > 1.0 {
+		normalized = 1.0
+	}
+	if normalized < 0 {
+		normalized = 0
+	}
+	return normalized, nil
 }
 
 // GetDivergenceSignals checks for divergence signals across momentum/volume.
