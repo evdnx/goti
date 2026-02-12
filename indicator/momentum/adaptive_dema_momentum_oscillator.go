@@ -176,12 +176,14 @@ func (admo *AdaptiveDEMAMomentumOscillator) Add(high, low, close float64) error 
 	admo.demaWindow = append(admo.demaWindow, dema)
 
 	// Trim sliding windows to the maximum size we’ll ever need.
+	// Use copy-based trimming to release old backing arrays for GC,
+	// preventing memory growth over thousands of Add() calls.
 	maxCap := int(math.Max(float64(admo.length), float64(admo.stdevLength)))
 	if len(admo.demaWindow) > maxCap {
-		admo.demaWindow = admo.demaWindow[len(admo.demaWindow)-maxCap:]
-		admo.highs = admo.highs[len(admo.highs)-maxCap:]
-		admo.lows = admo.lows[len(admo.lows)-maxCap:]
-		admo.closes = admo.closes[len(admo.closes)-maxCap:]
+		admo.demaWindow = trimSlice(admo.demaWindow, maxCap)
+		admo.highs = trimSlice(admo.highs, maxCap)
+		admo.lows = trimSlice(admo.lows, maxCap)
+		admo.closes = trimSlice(admo.closes, maxCap)
 	}
 
 	// Only compute ADMO when we have enough points.
@@ -194,6 +196,17 @@ func (admo *AdaptiveDEMAMomentumOscillator) Add(high, low, close float64) error 
 		admo.lastValue = amdoValue
 	}
 	return nil
+}
+
+// trimSlice returns the last n elements in a new backing array, allowing
+// the old (potentially large) array to be garbage collected.
+func trimSlice(s []float64, n int) []float64 {
+	if len(s) <= n {
+		return s
+	}
+	trimmed := make([]float64, n)
+	copy(trimmed, s[len(s)-n:])
+	return trimmed
 }
 
 // calculateADMO performs the core ADMO computation.
@@ -228,7 +241,7 @@ func (admo *AdaptiveDEMAMomentumOscillator) calculateADMO() (float64, error) {
 	// Rolling window of the calculated standard deviations.
 	admo.stdevWindow = append(admo.stdevWindow, stdevValue)
 	if len(admo.stdevWindow) > admo.stdevLength {
-		admo.stdevWindow = admo.stdevWindow[1:]
+		admo.stdevWindow = trimSlice(admo.stdevWindow, admo.stdevLength)
 	}
 
 	// ----- SMA of the stdev window -----
